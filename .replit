@@ -1,15 +1,18 @@
-entrypoint = "main.py"
-modules = ["python-3.11"]
+modules = ["nodejs-20", "web", "postgresql-16"]
+run = "npm run dev"
+hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
-channel = "stable-25_05"
+channel = "stable-24_05"
 
-[unitTest]
-language = "python3"
+[[ports]]
+localPort = 5000
+externalPort = 80
 
-[gitHubImport]
-requiredFiles = [".replit", "replit.nix"]
+[env]
+PORT = "5000"
 
 [deployment]
-run = ["python3", "main.py"]
-deploymentTarget = "cloudrun"
+deploymentTarget = "autoscale"
+run = ["node", "./dist/index.cjs"]
+build = ["npm", "run", "build"]

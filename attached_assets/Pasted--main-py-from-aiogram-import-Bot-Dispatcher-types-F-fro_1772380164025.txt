@@ -1,0 +1,282 @@
+# main.py
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import ReplyKeyboardRemove, InputMediaPhoto
+from flask import Flask
+from threading import Thread
+import asyncio
+import os
+
+# ============ НАСТРОЙКИ ============
+BOT_TOKEN = os.getenv("BOT_TOKEN", "ТВОЙ_ТОКЕН_ЗДЕСЬ")
+MAIN_CHANNEL = os.getenv("MAIN_CHANNEL", "@твой_основной_канал")  # например, "@berishmot_main"
+
+# Московский склад - отдельная группа
+MOSCOW_GROUP = "@berishmotmoscow"
+MOSCOW_GROUP_LINK = "https://t.me/berishmotmoscow"
+
+# Категории: кнопка → (текст ссылки, ID группы для пересылки)
+CATEGORY_MAP = {
+    "Обувь Adidas": ("Обувь Adidas", "@shoespremium1"),
+    "Обувь Nike": ("Обувь Nike", "@shoesbuy1"),
+    "Обувь New Balance": ("Обувь New Balance", "@shoesbuynb"),
+    "Обувь Микс": ("Обувь Микс", "@shoesmix1"),
+    "Костюмы": ("Все костюмы тут", "@kostumtut"),
+    "Old Money": ("Все вещи Old Money", "@oldmoney_premium"),
+    "Зима": ("Зимняя коллекция", "@wintercloth1"),
+    "Худи и Свитшоты": ("Худи и свитшоты", "@hoodiespremium"),
+    "Футболки и Рубашки": ("Футболки и рубашки", "@t_shirtsbuy"),
+    "Куртки и Ветровки": ("Куртки и ветровки", "@jacketsbuy"),
+    "Штаны и Джинсы": ("Штаны и джинсы", "@jeanspremium"),
+    "Шорты и Трусы": ("Шорты и трусы", "@shortsbuy"),
+    "Головные уборы и Шарфы": ("Головные уборы и шарфы", "@headdressbuy"),
+    "Аксессуары": ("Все аксессуары", "@accessories_buy"),
+    "Сумки и Кошельки": ("Сумки и кошельки", "@bags_wallets"),
+}
+
+# Варианты склада (МОСКВА ПЕРВЫМ!)
+WAREHOUSE_OPTIONS = [
+    "Склад Москва",           # ← Первый в списке
+    "Доставка 2-5 дней",
+    "Зарубежный склад"
+]
+
+# ============ FSM ============
+class PostForm(StatesGroup):
+    waiting_for_photos = State()
+    waiting_for_name_and_price = State()
+    waiting_for_category = State()
+    waiting_for_warehouse = State()
+
+# ============ Бот ============
+storage = MemoryStorage()
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=storage)
+
+# ============ Веб-сервер для Replit (опционально) ============
+app = Flask('')
+
+@app.route('/')
+def home():
+    return 'Bot is alive! 🤖'
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# ============ КНОПКИ ============
+def get_add_new_button():
+    return types.ReplyKeyboardMarkup(
+        keyboard=[[types.KeyboardButton(text="➕ Добавить новый товар")]],
+        resize_keyboard=True
+    )
+
+def get_warehouse_keyboard():
+    """Клавиатура склада: Москва первой"""
+    buttons = [[types.KeyboardButton(text=wh)] for wh in WAREHOUSE_OPTIONS]
+    return types.ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+# ============ КОМАНДЫ ============
+@dp.message(Command("start"))
+async def start(message: types.Message):
+    await message.answer(
+        f"📸 Привет!\n"
+        f"Чтобы опубликовать товар — нажми:\n"
+        f"/post — начать\n\n"
+        f"🏪 Склад Москва: {MOSCOW_GROUP_LINK}",
+        reply_markup=get_add_new_button()
+    )
+
+@dp.message(F.text == "➕ Добавить новый товар")
+async def add_new_from_button(message: types.Message, state: FSMContext):
+    await cmd_post(message, state)
+
+@dp.message(Command("post"))
+async def cmd_post(message: types.Message, state: FSMContext):
+    await state.clear()
+    await state.set_state(PostForm.waiting_for_photos)
+    await message.answer(
+        "1️⃣ Пришли фото товара\n"
+        "Можно до 10 фото (альбомом или по одному)",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+# ============ ПРИЁМ ФОТО ============
+@dp.message(PostForm.waiting_for_photos, F.photo)
+async def get_photos(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+    photos.append(message.photo[-1].file_id)
+
+    if len(photos) >= 10:
+        await state.update_data(photos=photos)
+        await ask_name_and_price(message, state)
+        return
+
+    if len(photos) == 1:
+        text = "✅ Фото добавлено\n\nПришли ещё или напиши «Далее»"
+    else:
+        text = f"✅ Фото {len(photos)} добавлено\n\nПришли ещё или напиши «Далее»"
+
+    await state.update_data(photos=photos)
+    await message.answer(text)
+
+@dp.message(PostForm.waiting_for_photos, F.text)
+async def photos_done(message: types.Message, state: FSMContext):
+    text = message.text.strip().lower()
+    
+    if text == "далее":
+        data = await state.get_data()
+        if not data.get("photos"):
+            await message.answer("❌ Сначала пришли хотя бы одно фото")
+            return
+        await ask_name_and_price(message, state)
+    else:
+        await message.answer("Напишите «Далее» чтобы продолжить, или пришлите ещё фото")
+
+async def ask_name_and_price(message: types.Message, state: FSMContext):
+    await state.set_state(PostForm.waiting_for_name_and_price)
+    await message.answer(
+        "2️⃣ Введи данные в три строки:\n"
+        "1. Название товара\n"
+        "2. Цена (число, например 3490)\n"
+        "3. Размеры (например: S-M-L-XL или 35-46 EUR)",
+        parse_mode="HTML"
+    )
+
+@dp.message(PostForm.waiting_for_name_and_price)
+async def get_name_and_price(message: types.Message, state: FSMContext):
+    lines = message.text.strip().split('\n')
+    if len(lines) < 3:
+        await message.answer("❌ Нужно три строки. Попробуй ещё раз.")
+        return
+
+    name = lines[0].strip()
+    try:
+        new_price = int(lines[1].strip())
+        old_price = new_price * 2
+    except ValueError:
+        await message.answer("❌ Цена должна быть числом.")
+        return
+
+    sizes = lines[2].strip()
+    if not sizes or sizes.lower() in ["нет", "-", "не указано"]:
+        sizes = "Не указано"
+
+    await state.update_data(name=name, new_price=new_price, old_price=old_price, sizes=sizes)
+
+    # Кнопки категорий
+    buttons = [[types.KeyboardButton(text=cat)] for cat in CATEGORY_MAP.keys()]
+    buttons.append([types.KeyboardButton(text="Только в основной канал")])
+    keyboard = types.ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
+
+    await state.set_state(PostForm.waiting_for_category)
+    await message.answer("3️⃣ Выбери категорию:", reply_markup=keyboard)
+
+# ============ КАТЕГОРИЯ ============
+@dp.message(PostForm.waiting_for_category)
+async def get_category(message: types.Message, state: FSMContext):
+    category = message.text
+    if category not in CATEGORY_MAP and category != "Только в основной канал":
+        await message.answer("❌ Выбери из кнопок выше")
+        return
+
+    await state.update_data(category=category)
+    await state.set_state(PostForm.waiting_for_warehouse)
+    await message.answer("4️⃣ Выбери склад:", reply_markup=get_warehouse_keyboard())
+
+# ============ СКЛАД И ПУБЛИКАЦИЯ ============
+@dp.message(PostForm.waiting_for_warehouse)
+async def send_post(message: types.Message, state: FSMContext):
+    warehouse = message.text
+    if warehouse not in WAREHOUSE_OPTIONS:
+        await message.answer("❌ Выбери из кнопок")
+        return
+
+    data = await state.get_data()
+    photos = data["photos"]
+    name = data["name"]
+    new_price = data["new_price"]
+    old_price = data["old_price"]
+    category = data["category"]
+    sizes = data["sizes"]
+
+    # ================= ЛОГИКА РАСПРЕДЕЛЕНИЯ =================
+    is_moscow = (warehouse == "Склад Москва")
+
+    if is_moscow:
+        # 🔹 Только московский склад: пост ТОЛЬКО в @berishmotmoscow
+        target_chat = MOSCOW_GROUP
+        link_text = "Склад Москва"
+        link_url = MOSCOW_GROUP_LINK
+        publish_to_main = False  # ❌ НЕ публикуем в основной канал
+    elif category == "Только в основной канал":
+        # 🔹 Только основной канал
+        target_chat = None
+        link_text = "Все товары тут"
+        link_url = f"https://t.me/{MAIN_CHANNEL.lstrip('@')}"
+        publish_to_main = True
+    else:
+        # 🔹 Зарубежный склад: основной + подкатегория
+        link_text, target_chat = CATEGORY_MAP[category]
+        link_url = f"https://t.me/{target_chat.lstrip('@')}"
+        publish_to_main = True
+
+    # Формируем текст поста (HTML)
+    post_text = (
+        f"<b>{name}</b>\n\n"
+        f"🔗 <b>Размеры:</b> {sizes}\n\n"
+        f"💰 <b>Цена:</b> {new_price}₽ <s>{old_price}₽</s>\n\n"
+        f"✈️ {warehouse}\n\n"
+        f"➡️ <a href='{link_url}'>{link_text}</a>\n\n"
+        f"💌 Бесплатный обмен/возврат\n\n"
+        f"❤️ <a href='https://t.me/berishmotru'>Отзывы</a> | "
+        f"<a href='https://telegra.ph/Pochemu-mozhno-doveryat-Berishmot-Store-04-20-2'>Гарантии</a>\n\n"
+        f"Для заказа и уточнения деталей: @viktor_zorin"
+    )
+
+    try:
+        # 📦 Готовим медиа-группу
+        media = [InputMediaPhoto(media=photos[0], caption=post_text, parse_mode="HTML")]
+        for photo in photos[1:]:
+            media.append(InputMediaPhoto(media=photo))
+
+        result_parts = []
+
+        # ✅ Публикация в основной канал (если не Москва)
+        if publish_to_main:
+            await bot.send_media_group(chat_id=MAIN_CHANNEL, media=media)
+            result_parts.append(MAIN_CHANNEL)
+
+        # ✅ Публикация в целевую группу (подкатегория ИЛИ Москва)
+        if target_chat:
+            await bot.send_media_group(chat_id=target_chat, media=media)
+            result_parts.append(target_chat)
+
+        # 🎉 Отчёт
+        await state.clear()
+        await message.answer(
+            f"✅ Опубликовано: {', '.join(result_parts)}",
+            reply_markup=get_add_new_button()
+        )
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка: {str(e)}\n\n"
+            f"Проверь, что бот — админ в каналах и включена публикация от имени канала.",
+            reply_markup=get_add_new_button()
+        )
+
+# ============ ЗАПУСК ============
+async def main():
+    # keep_alive()  # Раскомментируй, если хостишь на Replit
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
