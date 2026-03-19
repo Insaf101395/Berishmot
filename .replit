@@ -1,13 +1,15 @@
-run = "python3 main.py"
+entrypoint = "main.py"
+modules = ["python-3.11"]
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
 
-[env]
-PYTHONUNBUFFERED = "1"          # чтобы логи сразу выводились
-PORT = "5000"                   # если нужен веб-сервер (для бота не обязательно)
+[unitTest]
+language = "python3"
 
-hidden = [".config", ".git", "node_modules", "dist"]
+[gitHubImport]
+requiredFiles = [".replit", "replit.nix"]
 
-# Установка пакетов — через poetry/pyproject.toml или requirements.txt
-# НЕ пиши pip install здесь — используй replit.nix или shell.nix для nix-пакетов
+[deployment]
+run = ["python3", "main.py"]
+deploymentTarget = "cloudrun"
