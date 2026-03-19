@@ -1,18 +1,13 @@
-modules = ["nodejs-20", "web", "postgresql-16"]
-run = "npm run dev"
-hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
+run = "python3 main.py"
 
 [nix]
 channel = "stable-24_05"
 
-[[ports]]
-localPort = 5000
-externalPort = 80
-
 [env]
-PORT = "5000"
+PYTHONUNBUFFERED = "1"          # чтобы логи сразу выводились
+PORT = "5000"                   # если нужен веб-сервер (для бота не обязательно)
 
-[deployment]
-deploymentTarget = "autoscale"
-run = ["node", "./dist/index.cjs"]
-build = ["npm", "run", "build"]
+hidden = [".config", ".git", "node_modules", "dist"]
+
+# Установка пакетов — через poetry/pyproject.toml или requirements.txt
+# НЕ пиши pip install здесь — используй replit.nix или shell.nix для nix-пакетов
