@@ -5,7 +5,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InputMediaPhoto
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiohttp import web
 import asyncio
 import os
 import re
@@ -17,7 +16,6 @@ logger = logging.getLogger(__name__)
 # ============ НАСТРОЙКИ ============
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MAIN_CHANNEL = os.getenv("MAIN_CHANNEL")
-MOSCOW_GROUP = "@berishmotmoscow"
 
 CATEGORY_MAP = {
     "Обувь Adidas": ("Обувь Adidas", "@shoespremium1"),
@@ -37,7 +35,7 @@ CATEGORY_MAP = {
     "Сумки и Кошельки": ("Сумки и кошельки", "@bags_wallets"),
 }
 
-WAREHOUSE_OPTIONS = ["Склад Москва", "Доставка 2-5 дней", "Зарубежный склад"]
+WAREHOUSE_OPTIONS = ["Доставка 2-5 дней", "Зарубежный склад"]
 
 SHOE_KEYWORDS = ["кроссовки", "сникер", "ботинк", "туфл", "кед", "обувь", "EUR", "35-", "36-", "39-", "40-", "размер обуви"]
 
@@ -53,19 +51,6 @@ bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-# ============ KEEP-ALIVE СЕРВЕР ============
-async def keep_alive(request):
-    return web.Response(text="Bot is alive!")
-
-async def start_keep_alive():
-    app = web.Application()
-    app.router.add_get('/', keep_alive)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 5000)
-    await site.start()
-    logger.info("✅ Keep-Alive сервер запущен на порту 5000")
-
 # ============ КЛАВИАТУРЫ ============
 def get_start_kb():
     return types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text="/post")]], resize_keyboard=True)
@@ -78,22 +63,25 @@ def cancel_inline():
 # ============ ПАРСЕР ============
 def parse_caption(text: str):
     if not text:
-        return None, None, None
+        return "Без названия", None, "Не указано"
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     name = lines[0] if lines else "Без названия"
     price = None
     material = "Не указано"
-    for line in lines:
-        price_match = re.search(r"(\d{4,6})", line)
-        if price_match and price is None:
-            price = int(price_match.group(1))
-            continue
-        if any(word in line.lower() for word in ["материал", "состав", "ткань", "%", "хлопок", "полиэстер", "эластан", "водонепроницаем"]):
+    material_keywords = ["материал", "состав", "ткань", "хлопок", "полиэстер", "эластан", "нейлон", "флис", "кожа", "замша", "шерпа", "синтетика", "вискоза", "%"]
+    for i, line in enumerate(lines):
+        if price is None:
+            price_match = re.search(r"(\d{4,6})", line)
+            if price_match:
+                price = int(price_match.group(1))
+                continue
+        line_lower = line.lower()
+        if any(kw in line_lower for kw in material_keywords) or (price is not None and len(line) > 8 and not re.search(r"\d{2}[-–]\d{2}", line)):
             material = line
-            continue
+            break
     if price is None and len(lines) > 1:
         try:
-            price = int(re.search(r"\d+", lines[1]).group())
+            price = int(re.search(r"\d{4,6}", lines[1]).group())
         except:
             pass
     return name, price, material
@@ -101,25 +89,13 @@ def parse_caption(text: str):
 # ============ ХЕНДЛЕРЫ ============
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer(
-        "🚀 <b>Berishmot Bot v2.1</b>\n\n"
-        "📸 Пришли альбом + подпись в первом фото",
-        parse_mode="HTML",
-        reply_markup=get_start_kb(),
-    )
+    await message.answer("🚀 <b>Berishmot Bot v2.1</b>\n\n📸 Пришли альбом + подпись в первом фото", parse_mode="HTML", reply_markup=get_start_kb())
 
 @dp.message(Command("post"))
 async def cmd_post(message: types.Message, state: FSMContext):
     await state.clear()
     await state.set_state(PostForm.waiting_for_photos_and_text)
-    await message.answer(
-        "📸 Пришли альбом (до 10 фото)\n\n"
-        "В подписи к первому фото:\n"
-        "Название\n"
-        "Цена\n"
-        "Материалы / состав",
-        reply_markup=cancel_inline(),
-    )
+    await message.answer("📸 Пришли альбом (до 10 фото)\n\nВ подписи к первому фото:\nНазвание\nЦена\nМатериалы / состав", reply_markup=cancel_inline())
 
 @dp.message(PostForm.waiting_for_photos_and_text, F.photo)
 async def process_photos_with_caption(message: types.Message, state: FSMContext):
@@ -135,7 +111,6 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
     if not processed and message.caption:
         await state.update_data(caption_processed=True)
         name, price, material = parse_caption(message.caption)
-
         if not price:
             await message.answer("❌ Не нашёл цену. Попробуй снова.", reply_markup=cancel_inline())
             return
@@ -149,16 +124,13 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
         if is_shoe:
             await state.update_data(sizes="—")
             kb = InlineKeyboardBuilder()
-            sizes_list = [
-                "35–46", "36–46", "35–47", "36–41", "39–44", "40–45",
-                "40–46", "41–46", "41–44", "42–45", "38–45", "37–44", "Не важно"
-            ]
+            sizes_list = ["35–46", "36–46", "35–47", "36–41", "39–44", "40–45", "40–46", "41–46", "41–44", "42–45", "38–45", "37–44", "Не важно"]
             for size in sizes_list:
                 kb.button(text=size, callback_data=f"shoe:{size}")
             kb.adjust(3)
             kb.row(types.InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
             await state.set_state(PostForm.waiting_for_shoe_size)
-            await message.answer("👟 Обувь определена\n\nВыбери диапазон размеров (или «Не важно»):", reply_markup=kb.as_markup())
+            await message.answer("👟 Обувь определена\n\nВыбери диапазон размеров:", reply_markup=kb.as_markup())
         else:
             await state.update_data(sizes="S–M–L–XL–2XL–3XL")
             await state.set_state(PostForm.waiting_for_category)
@@ -176,12 +148,11 @@ async def show_category_inline(message: types.Message):
     builder.row(types.InlineKeyboardButton(text="❌ Отмена", callback_data="cancel"))
     await message.answer("Выбери категорию:", reply_markup=builder.as_markup())
 
-# Callback-хендлеры
 @dp.callback_query(F.data.startswith("shoe:"))
 async def set_shoe_size_callback(callback: types.CallbackQuery, state: FSMContext):
     size = callback.data.split(":", 1)[1]
     await state.update_data(sizes=size)
-    await callback.message.edit_text(f"✅ Размеры обуви: {size}")
+    await callback.message.edit_text(f"✅ Размеры: {size}")
     await state.set_state(PostForm.waiting_for_category)
     await show_category_inline(callback.message)
     await callback.answer()
@@ -218,7 +189,14 @@ async def send_preview(message: types.Message, state: FSMContext):
     old_p = data.get("old_price", 0)
     material = data.get("material", "Не указано")
     sizes = data.get("sizes", "—")
-    warehouse = data.get("warehouse", "Склад Москва")
+    warehouse = data.get("warehouse", "Зарубежный склад")
+    category = data.get("category", "Только в основной канал")
+
+    if category == "Только в основной канал":
+        link_text = "Все товары тут"
+        forward_to = None
+    else:
+        link_text, forward_to = CATEGORY_MAP.get(category, ("Все товары тут", MAIN_CHANNEL))
 
     post_text = (
         f"<b>{name}</b>\n\n"
@@ -226,16 +204,16 @@ async def send_preview(message: types.Message, state: FSMContext):
         f"💸 <b>Цена:</b> {new_p}₽ <s>{old_p}₽</s>\n\n"
         f"🪴 <b>Материалы:</b> {material}\n\n"
         f"🚀 {warehouse}\n\n"
-        f"🔗 <a href='https://t.me/{MOSCOW_GROUP.lstrip('@')}'>Склад Москва</a>\n\n"
+        f"🔗 <a href='https://t.me/{MAIN_CHANNEL.lstrip('@')}'>Все товары тут</a>\n\n"
         f"🫶 Бесплатный обмен/возврат\n\n"
         f"💖 <a href='https://t.me/berishmotru'>Отзывы</a> | "
         f"<a href='https://telegra.ph/Pochemu-mozhno-doveryat-Berishmot-Store-04-20-2'>Гарантии</a>\n\n"
         f"Для заказа: @viktor_zorin"
     )
 
-    await state.update_data(preview_text=post_text)
+    await state.update_data(preview_text=post_text, preview_publish_main=True, preview_forward_to=forward_to)
 
-    media = [InputMediaPhoto(media=photos[0], caption="🔍 Превью (новый стиль)\n\n" + post_text, parse_mode="HTML")]
+    media = [InputMediaPhoto(media=photos[0], caption="🔍 Превью\n\n" + post_text, parse_mode="HTML")]
     for pid in photos[1:]:
         media.append(InputMediaPhoto(media=pid))
 
@@ -250,14 +228,20 @@ async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     photos = data.get("photos", [])
     post_text = data.get("preview_text", "")
+    forward_to = data.get("preview_forward_to")
 
     media = [InputMediaPhoto(media=photos[0], caption=post_text, parse_mode="HTML")]
     for pid in photos[1:]:
         media.append(InputMediaPhoto(media=pid))
 
+    published = [MAIN_CHANNEL]
     try:
-        await bot.send_media_group(MOSCOW_GROUP, media)
-        await callback.message.edit_text(f"✅ Опубликовано в Московский склад")
+        await bot.send_media_group(MAIN_CHANNEL, media)
+        if forward_to:
+            await bot.send_media_group(forward_to, media)
+            published.append(forward_to)
+
+        await callback.message.edit_text(f"✅ Опубликовано в: {', '.join(published)}")
         await callback.message.answer("Готов к следующему!", reply_markup=get_start_kb())
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
@@ -273,8 +257,7 @@ async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
 
 # ============ ЗАПУСК ============
 async def main():
-    asyncio.create_task(start_keep_alive())   # Запускаем keep-alive
-    logger.info("🚀 Berishmot Bot запущен с Keep-Alive")
+    logger.info("🚀 Berishmot Bot v2.1 запущен")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

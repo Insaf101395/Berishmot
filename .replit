@@ -1,23 +1,24 @@
-entrypoint = "main.py"
 modules = ["python-3.11"]
-
 [nix]
-channel = "stable-25_05"
-packages = ["openssl"]
+channel = "stable-24_05"
 
-[unitTest]
-language = "python3"
-
-[gitHubImport]
-requiredFiles = [".replit", "replit.nix"]
+run = "python3 app.py"
 
 [deployment]
-run = ["python3", "main.py"]
+run = ["python3", "app.py"]
 deploymentTarget = "cloudrun"
 
-[agent]
-expertMode = true
-
 [[ports]]
-localPort = 5000
+localPort = 8080
 externalPort = 80
+
+[workflows]
+
+[[workflows.workflow]]
+name = "python3 app.py"
+mode = "sequential"
+author = 46156711
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 app.py"
