@@ -270,7 +270,7 @@ async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer("Готов к следующему!", reply_markup=get_start_kb())
 
         # Pinterest: скачиваем байты фото и добавляем в CSV-партию
-        asyncio.create_task(_add_to_pinterest(photos, name, category))
+        asyncio.create_task(_add_to_pinterest(photos, name, category, callback.message.chat.id))
 
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
@@ -279,18 +279,23 @@ async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-async def _add_to_pinterest(photo_ids: list, name: str, category: str):
+async def _add_to_pinterest(photo_ids: list, name: str, category: str, chat_id: int):
     """Фоновая задача: скачать фото -> добавить пин в CSV."""
     try:
         photo_bytes_list = []
         for file_id in photo_ids[:pe.PINS_PER_PRODUCT]:
             file = await bot.get_file(file_id)
-            buf = await bot.download_file(file.file_path)  # возвращает BytesIO
+            buf = await bot.download_file(file.file_path)
             photo_bytes_list.append(buf.read())
         added, total = await pe.add_product(photo_bytes_list, name, category)
         logger.info(f"Pinterest batch: +{added} пин(а), итого {total}")
+        if added:
+            await bot.send_message(chat_id, f"📌 Pinterest: +{added} пин добавлен. Итого в партии: {total}")
+        else:
+            await bot.send_message(chat_id, "⚠️ Pinterest: пин не добавлен (ImgBB не ответил или пустой список фото)")
     except Exception as e:
         logger.error(f"Pinterest add_product error: {e}", exc_info=True)
+        await bot.send_message(chat_id, f"❌ Pinterest ошибка: {e}")
 
 @dp.callback_query(F.data == "cancel")
 async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
