@@ -285,13 +285,12 @@ async def _add_to_pinterest(photo_ids: list, name: str, category: str):
         photo_bytes_list = []
         for file_id in photo_ids[:pe.PINS_PER_PRODUCT]:
             file = await bot.get_file(file_id)
-            buf = io.BytesIO()
-            await bot.download_file(file.file_path, buf)
-            photo_bytes_list.append(buf.getvalue())
+            buf = await bot.download_file(file.file_path)  # возвращает BytesIO
+            photo_bytes_list.append(buf.read())
         added, total = await pe.add_product(photo_bytes_list, name, category)
         logger.info(f"Pinterest batch: +{added} пин(а), итого {total}")
     except Exception as e:
-        logger.error(f"Pinterest add_product error: {e}")
+        logger.error(f"Pinterest add_product error: {e}", exc_info=True)
 
 @dp.callback_query(F.data == "cancel")
 async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
