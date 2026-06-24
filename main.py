@@ -3,12 +3,15 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InputMediaPhoto
+from aiogram.types import InputMediaPhoto, FSInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import asyncio
 import os
+import io
 import re
 import logging
+
+import pinterest_export as pe
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -229,6 +232,8 @@ async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
     photos = data.get("photos", [])
     post_text = data.get("preview_text", "")
     forward_to = data.get("preview_forward_to")
+    name = data.get("name", "Товар")
+    category = data.get("category", "Только в основной канал")
 
     media = [InputMediaPhoto(media=photos[0], caption=post_text, parse_mode="HTML")]
     for pid in photos[1:]:
@@ -243,17 +248,68 @@ async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
 
         await callback.message.edit_text(f"✅ Опубликовано в: {', '.join(published)}")
         await callback.message.answer("Готов к следующему!", reply_markup=get_start_kb())
+
+        # Pinterest: скачиваем байты фото и добавляем в CSV-партию
+        asyncio.create_task(_add_to_pinterest(photos, name, category))
+
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
     await state.clear()
     await callback.answer()
 
+
+async def _add_to_pinterest(photo_ids: list, name: str, category: str):
+    """Фоновая задача: скачать фото -> добавить пин в CSV."""
+    try:
+        photo_bytes_list = []
+        for file_id in photo_ids[:pe.PINS_PER_PRODUCT]:
+            file = await bot.get_file(file_id)
+            buf = io.BytesIO()
+            await bot.download_file(file.file_path, buf)
+            photo_bytes_list.append(buf.getvalue())
+        added, total = await pe.add_product(photo_bytes_list, name, category)
+        logger.info(f"Pinterest batch: +{added} пин(а), итого {total}")
+    except Exception as e:
+        logger.error(f"Pinterest add_product error: {e}")
+
 @dp.callback_query(F.data == "cancel")
 async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.answer("🚫 Отменено", reply_markup=get_start_kb())
     await callback.answer()
+
+# ============ PINTEREST КОМАНДЫ ============
+@dp.message(Command("pinterest"))
+async def cmd_pinterest_count(message: types.Message):
+    count = pe.count_batch()
+    await message.answer(
+        f"📌 <b>Pinterest партия:</b> {count} пин(а)\n\n"
+        f"• /export — скачать CSV\n"
+        f"• /clear_batch — архивировать и начать новую",
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("export"))
+async def cmd_export(message: types.Message):
+    path = pe.get_csv_path()
+    if not path:
+        await message.answer("📭 Партия пустая — публикуй товары, они добавятся автоматически.")
+        return
+    count = pe.count_batch()
+    doc = FSInputFile(path, filename="pinterest_batch.csv")
+    await message.answer_document(
+        doc,
+        caption=f"📋 Pinterest CSV — {count} пин(а)\n\nЗагрузи в Pinterest: Настройки → Импорт контента"
+    )
+
+@dp.message(Command("clear_batch"))
+async def cmd_clear_batch(message: types.Message):
+    archived = pe.clear_batch()
+    if not archived:
+        await message.answer("📭 Нечего архивировать — партия и так пустая.")
+        return
+    await message.answer(f"✅ Партия архивирована как <code>{archived}</code>. Новая партия начата.", parse_mode="HTML")
 
 # ============ ЗАПУСК ============
 async def main():
