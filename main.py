@@ -105,6 +105,7 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
     data = await state.get_data()
     photos = data.get("photos", [])
     processed = data.get("caption_processed", False)
+    reminded = data.get("caption_reminded", False)
 
     photo_id = message.photo[-1].file_id
     if photo_id not in photos:
@@ -112,12 +113,20 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
         await state.update_data(photos=photos)
 
     if not processed and message.caption:
-        await state.update_data(caption_processed=True)
         name, price, material = parse_caption(message.caption)
         if not price:
-            await message.answer("❌ Не нашёл цену. Попробуй снова.", reply_markup=cancel_inline())
+            await message.answer(
+                "❌ Не нашёл цену в подписи.\n\n"
+                "Формат подписи к первому фото:\n"
+                "<b>Название товара\n3500\nМатериал / состав</b>\n\n"
+                "Цена должна быть числом от 1000 до 999999.",
+                parse_mode="HTML",
+                reply_markup=cancel_inline()
+            )
             return
 
+        # Флаг выставляем только после успешной валидации
+        await state.update_data(caption_processed=True)
         old_price = int(price * 1.3)
         await state.update_data(name=name, new_price=price, old_price=old_price, material=material)
 
@@ -138,6 +147,17 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
             await state.update_data(sizes="S–M–L–XL–2XL–3XL")
             await state.set_state(PostForm.waiting_for_category)
             await show_category_inline(message)
+
+    elif not processed and not message.caption and not reminded:
+        # Фото пришло без подписи — напоминаем один раз
+        await state.update_data(caption_reminded=True)
+        await message.answer(
+            "📝 Фото получено!\n\n"
+            "Теперь пришли альбом <b>с подписью</b> на первом фото:\n\n"
+            "<b>Название товара\nЦена (например: 3500)\nМатериал / состав</b>",
+            parse_mode="HTML",
+            reply_markup=cancel_inline()
+        )
 
     if len(photos) >= 10:
         await message.answer("✅ 10 фото добавлено", reply_markup=cancel_inline())
