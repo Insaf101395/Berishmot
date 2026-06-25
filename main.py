@@ -10,8 +10,15 @@ import os
 import io
 import re
 import logging
+from datetime import datetime, timedelta
+from collections import deque
 
 import pinterest_export as pe
+
+# ============ ОЧЕРЕДЬ ПУБЛИКАЦИЙ ============
+post_queue: deque = deque()
+last_published_at: datetime | None = None
+MIN_INTERVAL = 5 * 60  # секунд между постами
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -246,34 +253,79 @@ async def send_preview(message: types.Message, state: FSMContext):
     await bot.send_media_group(chat_id=message.chat.id, media=media)
     await message.answer("Подтверди публикацию:", reply_markup=builder.as_markup())
 
+async def _do_publish(photos: list, post_text: str, forward_to: str | None) -> list[str]:
+    """Отправляет медиагруппу в каналы. Возвращает список каналов."""
+    media = [InputMediaPhoto(media=photos[0], caption=post_text, parse_mode="HTML")]
+    for pid in photos[1:]:
+        media.append(InputMediaPhoto(media=pid))
+    published = [MAIN_CHANNEL]
+    await bot.send_media_group(MAIN_CHANNEL, media)
+    if forward_to:
+        await bot.send_media_group(forward_to, media)
+        published.append(forward_to)
+    return published
+
+
+async def _queue_worker():
+    """Воркер: публикует посты из очереди с интервалом ≥ MIN_INTERVAL секунд."""
+    global last_published_at
+    while True:
+        await asyncio.sleep(10)
+        if not post_queue:
+            continue
+        now = datetime.now()
+        if last_published_at and (now - last_published_at).total_seconds() < MIN_INTERVAL:
+            continue
+        post = post_queue.popleft()
+        chat_id = post["chat_id"]
+        try:
+            published = await _do_publish(post["photos"], post["post_text"], post["forward_to"])
+            last_published_at = datetime.now()
+            await bot.send_message(chat_id, f"✅ Опубликовано: {', '.join(published)}\nГотов к следующему!")
+            asyncio.create_task(_add_to_pinterest(post["photos"], post["name"], post["category"], chat_id))
+            if post_queue:
+                next_time = (datetime.now() + timedelta(seconds=MIN_INTERVAL)).strftime("%H:%M")
+                await bot.send_message(chat_id, f"⏳ Следующий в очереди выйдет в ~{next_time}")
+        except Exception as e:
+            await bot.send_message(chat_id, f"❌ Ошибка публикации из очереди: {e}")
+
+
 @dp.callback_query(F.data == "confirm_post")
 async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
+    global last_published_at
     data = await state.get_data()
     photos = data.get("photos", [])
     post_text = data.get("preview_text", "")
     forward_to = data.get("preview_forward_to")
     name = data.get("name", "Товар")
     category = data.get("category", "Только в основной канал")
+    chat_id = callback.message.chat.id
 
-    media = [InputMediaPhoto(media=photos[0], caption=post_text, parse_mode="HTML")]
-    for pid in photos[1:]:
-        media.append(InputMediaPhoto(media=pid))
+    now = datetime.now()
+    elapsed = (now - last_published_at).total_seconds() if last_published_at else MIN_INTERVAL
+    can_now = elapsed >= MIN_INTERVAL and not post_queue
 
-    published = [MAIN_CHANNEL]
-    try:
-        await bot.send_media_group(MAIN_CHANNEL, media)
-        if forward_to:
-            await bot.send_media_group(forward_to, media)
-            published.append(forward_to)
-
-        await callback.message.edit_text(f"✅ Опубликовано в: {', '.join(published)}")
+    if can_now:
+        try:
+            published = await _do_publish(photos, post_text, forward_to)
+            last_published_at = datetime.now()
+            await callback.message.edit_text(f"✅ Опубликовано в: {', '.join(published)}")
+            await callback.message.answer("Готов к следующему!", reply_markup=get_start_kb())
+            asyncio.create_task(_add_to_pinterest(photos, name, category, chat_id))
+        except Exception as e:
+            await callback.message.answer(f"❌ Ошибка: {str(e)}")
+    else:
+        post_queue.append({
+            "photos": photos, "post_text": post_text, "forward_to": forward_to,
+            "name": name, "category": category, "chat_id": chat_id,
+        })
+        pos = len(post_queue)
+        wait_secs = (MIN_INTERVAL - elapsed) + (pos - 1) * MIN_INTERVAL
+        next_time = (datetime.now() + timedelta(seconds=wait_secs)).strftime("%H:%M")
+        await callback.message.edit_text(
+            f"📋 Пост #{pos} поставлен в очередь\n⏳ Выйдет в ~{next_time}"
+        )
         await callback.message.answer("Готов к следующему!", reply_markup=get_start_kb())
-
-        # Pinterest: скачиваем байты фото и добавляем в CSV-партию
-        asyncio.create_task(_add_to_pinterest(photos, name, category, callback.message.chat.id))
-
-    except Exception as e:
-        await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
     await state.clear()
     await callback.answer()
@@ -290,9 +342,9 @@ async def _add_to_pinterest(photo_ids: list, name: str, category: str, chat_id: 
         added, total = await pe.add_product(photo_bytes_list, name, category)
         logger.info(f"Pinterest batch: +{added} пин(а), итого {total}")
         if added:
-            await bot.send_message(chat_id, f"📌 Pinterest: +{added} пин добавлен. Итого в партии: {total}")
+            await bot.send_message(chat_id, "📌 Добавлен в файл")
         else:
-            await bot.send_message(chat_id, "⚠️ Pinterest: пин не добавлен (ImgBB не ответил или пустой список фото)")
+            await bot.send_message(chat_id, "⚠️ Pinterest: ImgBB не ответил, пин не добавлен")
     except Exception as e:
         logger.error(f"Pinterest add_product error: {e}", exc_info=True)
         await bot.send_message(chat_id, f"❌ Pinterest ошибка: {e}")
@@ -338,6 +390,7 @@ async def cmd_clear_batch(message: types.Message):
 # ============ ЗАПУСК ============
 async def main():
     logger.info("🚀 Berishmot Bot v2.1 запущен")
+    asyncio.create_task(_queue_worker())
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
