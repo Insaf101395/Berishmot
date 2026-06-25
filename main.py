@@ -1,5 +1,5 @@
-from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
-from aiogram.filters import Command
+from aiogram import Bot, Dispatcher, Router, types, F, BaseMiddleware
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -72,6 +72,10 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 dp.message.middleware(AllowedUsersMiddleware())
 dp.callback_query.middleware(AllowedUsersMiddleware())
+
+# Публичный роутер — без фильтра по ALLOWED_USERS (для внешних пользователей)
+public_router = Router()
+dp.include_router(public_router)
 
 # ============ КЛАВИАТУРЫ ============
 def get_start_kb():
@@ -420,7 +424,7 @@ async def cmd_clear_batch(message: types.Message):
 # ============ ВСТУПЛЕНИЕ В КАНАЛ ============
 WELCOME_TEXT = (
     "Приветствую тебя, уважаемый покупатель <b>Berishmot Store</b>! 👋\n\n"
-    "Ты только что вступил в один из лучших магазинов одежды и обуви "
+    "Ты на пороге одного из лучших магазинов одежды и обуви "
     "в стиле <b>streetwear, old money и y2k</b>.\n\n"
     "🔥 У нас ты найдёшь:\n"
     "• Кроссовки, костюмы, худи, куртки, джинсы\n"
@@ -430,44 +434,42 @@ WELCOME_TEXT = (
     "📦 <b>Для заказа:</b> @viktor_zorin\n"
     "💬 <b>Отзывы покупателей:</b> @berishmotru\n"
     "🛡 <b>Гарантии:</b> telegra.ph/Pochemu-mozhno-doveryat-Berishmot-Store-04-20-2\n\n"
-    "👇 Жми кнопку ниже — смотри полный каталог и выбирай!"
+    "👇 Нажми кнопки ниже — вступай в канал и смотри полный каталог!"
 )
+
+@public_router.message(Command("start"))
+async def cmd_start_public(message: types.Message, command: CommandObject):
+    if command.args != "join":
+        return
+    try:
+        invite = await bot.create_chat_invite_link(
+            MAIN_CHANNEL,
+            member_limit=1,
+            name=f"join_{message.from_user.id}"
+        )
+        invite_url = invite.invite_link
+    except Exception as e:
+        logger.error(f"Invite link error: {e}")
+        invite_url = None
+
+    kb = InlineKeyboardBuilder()
+    if invite_url:
+        kb.button(text="📢 Вступить в канал", url=invite_url)
+    kb.button(text="🌐 Перейти в каталог", url="https://Berishmot.Store")
+    kb.adjust(1)
+
+    await message.answer(WELCOME_TEXT, parse_mode="HTML", reply_markup=kb.as_markup())
+    logger.info(f"✅ /start join: {message.from_user.id} (@{message.from_user.username})")
 
 @dp.chat_join_request()
 async def handle_join_request(update: types.ChatJoinRequest):
     user = update.from_user
-    # Автоматически одобряем заявку
+    # Мгновенно одобряем заявку
     try:
         await bot.approve_chat_join_request(update.chat.id, user.id)
+        logger.info(f"✅ Одобрен: {user.id} (@{user.username})")
     except Exception as e:
         logger.error(f"Approve error: {e}")
-
-    # Приветствие в личку (только если пользователь ранее нажимал /start у бота)
-    dm_sent = False
-    try:
-        await bot.send_message(user.id, WELCOME_TEXT,
-                               parse_mode="HTML",
-                               reply_markup=_catalog_kb())
-        dm_sent = True
-        logger.info(f"✅ DM отправлен: {user.id} ({user.username})")
-    except Exception as e:
-        logger.warning(f"⚠️ DM не прошёл ({user.id}): {e} — отправляю в канал")
-
-    # Если DM не удался — приветствуем в самом канале
-    if not dm_sent:
-        name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Новый участник"
-        try:
-            channel_text = (
-                f"👋 Добро пожаловать, "
-                f"<a href='tg://user?id={user.id}'>{name}</a>!\n\n"
-                f"Рады видеть тебя в <b>Berishmot Store</b> 🔥\n"
-                f"Смотри полный каталог и выбирай 👇"
-            )
-            await bot.send_message(MAIN_CHANNEL, channel_text,
-                                   parse_mode="HTML",
-                                   reply_markup=_catalog_kb())
-        except Exception as e2:
-            logger.error(f"Ошибка приветствия в канале: {e2}")
 
     # Уведомление администраторам
     name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Без имени"
