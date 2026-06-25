@@ -79,19 +79,19 @@ async def upload_to_imgbb(image_bytes: bytes) -> str | None:
 
 
 # ---------- Anthropic: фото -> русский title/description/keywords ----------
-PROMPT = """Ты — SEO-копирайтер для Pinterest. Рынок русскоязычный. Магазин одежды и обуви в стиле streetwear / y2k / old money.
+PROMPT = """You are an SEO copywriter for Pinterest. Clothing and footwear store in streetwear / y2k / old money aesthetic. English-speaking international audience.
 
-По фото товара и названию верни JSON строго такого вида:
+Based on the product photo and name, return JSON in exactly this format:
 {{"title": "...", "description": "...", "keywords": "..."}}
 
-Правила:
-- title: до 90 символов, на русском, начинается с типа вещи + стиль. English-эстетику можно (old money, y2k, streetwear, blokecore).
-- description: 1-2 предложения — что за вещь и с чем носить + эстетика. БЕЗ призывов "заказать/купить/пиши". До 400 символов.
-- keywords: 8-10 ключей через запятую, русские + английские эстетик-термины.
-- НИКОГДА не упоминай бренды (Supreme, Nike, Adidas, Margiela и любые другие) — заменяй на тип вещи или эстетику.
-- Верни ТОЛЬКО JSON. Без markdown, без тройных кавычек, без пояснений.
+Rules:
+- title: up to 90 characters, in English, start with item type + style/aesthetic.
+- description: 1-2 sentences — what it is, how to style it, aesthetic vibe. NO calls to action ("buy", "order", "dm us"). Up to 400 characters.
+- keywords: 8-10 keywords separated by commas, mix of item type + aesthetic terms (streetwear, y2k, old money, blokecore, quiet luxury, etc).
+- NEVER mention brand names (Nike, Adidas, Supreme, Margiela, etc) — replace with item type or aesthetic.
+- Return ONLY JSON. No markdown, no triple quotes, no explanations.
 
-Название товара от продавца: {name}"""
+Product name from seller: {name}"""
 
 
 async def generate_pin_copy(image_bytes: bytes, name: str) -> dict:
