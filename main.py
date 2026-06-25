@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============ ЗАЩИТА ============
-ALLOWED_USERS = {240939473}
+ALLOWED_USERS = {240939473, 294396177}
 
 class AllowedUsersMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: TelegramObject, data: dict):
