@@ -1,9 +1,9 @@
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InputMediaPhoto, FSInputFile
+from aiogram.types import InputMediaPhoto, FSInputFile, TelegramObject
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 import asyncio
 import os
@@ -22,6 +22,16 @@ MIN_INTERVAL = 5 * 60  # секунд между постами
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ============ ЗАЩИТА ============
+ALLOWED_USERS = {240939473}
+
+class AllowedUsersMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event: TelegramObject, data: dict):
+        user = data.get("event_from_user")
+        if user and user.id not in ALLOWED_USERS:
+            return  # молча игнорируем чужих
+        return await handler(event, data)
 
 # ============ НАСТРОЙКИ ============
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -60,6 +70,8 @@ class PostForm(StatesGroup):
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+dp.message.middleware(AllowedUsersMiddleware())
+dp.callback_query.middleware(AllowedUsersMiddleware())
 
 # ============ КЛАВИАТУРЫ ============
 def get_start_kb():
