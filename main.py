@@ -30,7 +30,10 @@ class AllowedUsersMiddleware(BaseMiddleware):
     async def __call__(self, handler, event: TelegramObject, data: dict):
         user = data.get("event_from_user")
         if user and user.id not in ALLOWED_USERS:
-            return  # молча игнорируем чужих
+            # /start открыт для всех — только для приветственной ссылки
+            if hasattr(event, "text") and event.text and event.text.startswith("/start"):
+                return await handler(event, data)
+            return  # всё остальное молча игнорируем
         return await handler(event, data)
 
 # ============ НАСТРОЙКИ ============
