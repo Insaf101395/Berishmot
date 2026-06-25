@@ -104,7 +104,7 @@ def parse_caption(text: str):
     if price is None and len(lines) > 1:
         try:
             price = int(re.search(r"\d{4,6}", lines[1]).group())
-        except:
+        except (AttributeError, TypeError, ValueError):
             pass
     return name, price, material
 
@@ -235,10 +235,9 @@ async def send_preview(message: types.Message, state: FSMContext):
     category = data.get("category", "Только в основной канал")
 
     if category == "Только в основной канал":
-        link_text = "Все товары тут"
         forward_to = None
     else:
-        link_text, forward_to = CATEGORY_MAP.get(category, ("Все товары тут", MAIN_CHANNEL))
+        _, forward_to = CATEGORY_MAP.get(category, ("Все товары тут", MAIN_CHANNEL))
 
     post_text = (
         f"<b>{name}</b>\n\n"
@@ -253,7 +252,7 @@ async def send_preview(message: types.Message, state: FSMContext):
         f"Для заказа: @viktor_zorin"
     )
 
-    await state.update_data(preview_text=post_text, preview_publish_main=True, preview_forward_to=forward_to)
+    await state.update_data(preview_text=post_text, preview_forward_to=forward_to)
 
     media = [InputMediaPhoto(media=photos[0], caption="🔍 Превью\n\n" + post_text, parse_mode="HTML")]
     for pid in photos[1:]:

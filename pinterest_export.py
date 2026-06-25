@@ -17,6 +17,15 @@ from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
 
+# Переиспользуемая сессия (создаётся при первом запросе)
+_http_session: aiohttp.ClientSession | None = None
+
+async def _get_session() -> aiohttp.ClientSession:
+    global _http_session
+    if _http_session is None or _http_session.closed:
+        _http_session = aiohttp.ClientSession()
+    return _http_session
+
 # ====================== НАСТРОЙКИ (меняешь под себя) ======================
 IMGBB_KEY = os.getenv("IMGBB_KEY")                  # ключ с imgbb.com -> About -> API
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # твой ключ Anthropic
@@ -63,16 +72,17 @@ client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 async def upload_to_imgbb(image_bytes: bytes) -> str | None:
     b64 = base64.b64encode(image_bytes).decode()
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "https://api.imgbb.com/1/upload",
-                data={"key": IMGBB_KEY, "image": b64},
-            ) as resp:
-                data = await resp.json()
+        session = await _get_session()
+        async with session.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_KEY, "image": b64},
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
+            data = await resp.json()
         if not data.get("success"):
             logger.error(f"ImgBB error: {data}")
             return None
-        return data["data"]["url"]          # прямая ссылка вида https://i.ibb.co/.../file.jpg
+        return data["data"]["url"]
     except Exception as e:
         logger.error(f"ImgBB exception: {e}")
         return None
@@ -114,9 +124,9 @@ async def generate_pin_copy(image_bytes: bytes, name: str) -> dict:
     except Exception as e:
         logger.error(f"Anthropic/JSON fail: {e}")
         # запасной вариант, чтобы пайплайн не падал
-        return {"title": (name or "Образ streetwear")[:90],
-                "description": "Стильная вещь для streetwear образа. Сочетается с базовыми вещами.",
-                "keywords": "streetwear, y2k, образ, лук, оверсайз, унисекс, стрит стиль"}
+        return {"title": (name or "Streetwear outfit")[:90],
+                "description": "Stylish streetwear piece. Easy to style with everyday basics for a clean, modern look.",
+                "keywords": "streetwear, y2k, old money, outfit, oversized, unisex, street style, aesthetic, fashion"}
 
 
 # ---------- Расписание ----------
