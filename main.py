@@ -379,16 +379,24 @@ async def cmd_pinterest_count(message: types.Message):
 
 @dp.message(Command("export"))
 async def cmd_export(message: types.Message):
-    path = pe.get_csv_path()
-    if not path:
-        await message.answer("📭 Партия пустая — публикуй товары, они добавятся автоматически.")
-        return
-    count = pe.count_batch()
-    doc = FSInputFile(path, filename="pinterest_batch.csv")
-    await message.answer_document(
-        doc,
-        caption=f"📋 Pinterest CSV — {count} пин(а)\n\nЗагрузи в Pinterest: Настройки → Импорт контента"
-    )
+    try:
+        path = pe.get_csv_path()
+        if not path:
+            await message.answer("📭 Партия пустая — публикуй товары, они добавятся автоматически.")
+            return
+        abs_path = os.path.abspath(path)
+        if not os.path.exists(abs_path):
+            await message.answer(f"⚠️ Файл не найден: {abs_path}")
+            return
+        count = pe.count_batch()
+        doc = FSInputFile(abs_path, filename="pinterest_batch.csv")
+        await message.answer_document(
+            doc,
+            caption=f"📋 Pinterest CSV — {count} пин(а)\n\nЗагрузи в Pinterest: Настройки → Импорт контента"
+        )
+    except Exception as e:
+        logger.error(f"Export error: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка экспорта: {e}")
 
 @dp.message(Command("clear_batch"))
 async def cmd_clear_batch(message: types.Message):
