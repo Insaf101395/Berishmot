@@ -419,11 +419,18 @@ async def cmd_clear_batch(message: types.Message):
 
 # ============ ВСТУПЛЕНИЕ В КАНАЛ ============
 WELCOME_TEXT = (
-    "Приветствую тебя, уважаемый покупатель Berishmot Store! 👋\n\n"
-    "Рады видеть тебя в нашем канале. Здесь ты найдёшь лучшие товары "
-    "в стиле streetwear, old money и y2k по выгодным ценам.\n\n"
-    "📦 Для заказа пиши: @viktor_zorin\n"
-    "💬 Отзывы: @berishmotru"
+    "Приветствую тебя, уважаемый покупатель <b>Berishmot Store</b>! 👋\n\n"
+    "Ты только что вступил в один из лучших магазинов одежды и обуви "
+    "в стиле <b>streetwear, old money и y2k</b>.\n\n"
+    "🔥 У нас ты найдёшь:\n"
+    "• Кроссовки, костюмы, худи, куртки, джинсы\n"
+    "• Цены ниже рынка — напрямую со склада\n"
+    "• Бесплатный обмен и возврат\n"
+    "• Быстрая доставка 2–5 дней\n\n"
+    "📦 <b>Для заказа:</b> @viktor_zorin\n"
+    "💬 <b>Отзывы покупателей:</b> @berishmotru\n"
+    "🛡 <b>Гарантии:</b> telegra.ph/Pochemu-mozhno-doveryat-Berishmot-Store-04-20-2\n\n"
+    "👇 Жми кнопку ниже — смотри полный каталог и выбирай!"
 )
 
 @dp.chat_join_request()
@@ -435,9 +442,11 @@ async def handle_join_request(update: types.ChatJoinRequest):
     except Exception as e:
         logger.error(f"Approve error: {e}")
 
-    # Приветствие новому подписчику в личку
+    # Приветствие новому подписчику в личку с кнопкой каталога
     try:
-        await bot.send_message(user.id, WELCOME_TEXT)
+        await bot.send_message(user.id, WELCOME_TEXT,
+                               parse_mode="HTML",
+                               reply_markup=_catalog_kb())
     except Exception:
         pass  # пользователь мог не начать диалог с ботом
 
