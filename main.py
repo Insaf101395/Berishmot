@@ -262,17 +262,28 @@ async def send_preview(message: types.Message, state: FSMContext):
     builder.button(text="✅ Опубликовать", callback_data="confirm_post")
     builder.button(text="❌ Отмена", callback_data="cancel")
     await bot.send_media_group(chat_id=message.chat.id, media=media)
+    await message.answer("🛍 Berishmot.Store [кнопка в канале]",
+                         reply_markup=_catalog_kb(), disable_web_page_preview=True)
     await message.answer("Подтверди публикацию:", reply_markup=builder.as_markup())
 
+def _catalog_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🌐 ПЕРЕЙТИ В КАТАЛОГ", url="https://Berishmot.Store")
+    return kb.as_markup()
+
 async def _do_publish(photos: list, post_text: str, forward_to: str | None) -> list[str]:
-    """Отправляет медиагруппу в каналы. Возвращает список каналов."""
+    """Отправляет медиагруппу + кнопку каталога в каналы."""
     media = [InputMediaPhoto(media=photos[0], caption=post_text, parse_mode="HTML")]
     for pid in photos[1:]:
         media.append(InputMediaPhoto(media=pid))
     published = [MAIN_CHANNEL]
     await bot.send_media_group(MAIN_CHANNEL, media)
+    await bot.send_message(MAIN_CHANNEL, "🛍 Berishmot.Store",
+                           reply_markup=_catalog_kb(), disable_web_page_preview=True)
     if forward_to:
         await bot.send_media_group(forward_to, media)
+        await bot.send_message(forward_to, "🛍 Berishmot.Store",
+                               reply_markup=_catalog_kb(), disable_web_page_preview=True)
         published.append(forward_to)
     return published
 
