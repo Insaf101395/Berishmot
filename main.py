@@ -442,13 +442,32 @@ async def handle_join_request(update: types.ChatJoinRequest):
     except Exception as e:
         logger.error(f"Approve error: {e}")
 
-    # Приветствие новому подписчику в личку с кнопкой каталога
+    # Приветствие в личку (только если пользователь ранее нажимал /start у бота)
+    dm_sent = False
     try:
         await bot.send_message(user.id, WELCOME_TEXT,
                                parse_mode="HTML",
                                reply_markup=_catalog_kb())
-    except Exception:
-        pass  # пользователь мог не начать диалог с ботом
+        dm_sent = True
+        logger.info(f"✅ DM отправлен: {user.id} ({user.username})")
+    except Exception as e:
+        logger.warning(f"⚠️ DM не прошёл ({user.id}): {e} — отправляю в канал")
+
+    # Если DM не удался — приветствуем в самом канале
+    if not dm_sent:
+        name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Новый участник"
+        try:
+            channel_text = (
+                f"👋 Добро пожаловать, "
+                f"<a href='tg://user?id={user.id}'>{name}</a>!\n\n"
+                f"Рады видеть тебя в <b>Berishmot Store</b> 🔥\n"
+                f"Смотри полный каталог и выбирай 👇"
+            )
+            await bot.send_message(MAIN_CHANNEL, channel_text,
+                                   parse_mode="HTML",
+                                   reply_markup=_catalog_kb())
+        except Exception as e2:
+            logger.error(f"Ошибка приветствия в канале: {e2}")
 
     # Уведомление администраторам
     name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Без имени"
