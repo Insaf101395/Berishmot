@@ -10,7 +10,7 @@ import json
 import os
 import base64
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import aiohttp
 from anthropic import AsyncAnthropic
@@ -22,9 +22,15 @@ IMGBB_KEY = os.getenv("IMGBB_KEY")                  # ключ с imgbb.com -> A
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # твой ключ Anthropic
 
 MODEL = "claude-3-5-sonnet-20241022"  # качество. Дешевле: "claude-3-haiku-20240307"
-PINS_PER_PRODUCT = 1               # сколько первых фото -> сколько пинов на товар (1 = безопасно, без near-duplicate)
+PINS_PER_PRODUCT = 1               # сколько первых фото -> сколько пинов на товар
 CSV_PATH = "pinterest_batch.csv"   # текущая партия
 TG_LINK = "https://t.me/+0uo05xuDQ1M2NWVi"   # ссылка-воронка под каждым пином
+
+# --- Расписание пинов ---
+PIN_INTERVAL_MINUTES = 30   # интервал между пинами
+PINS_PER_DAY = 30           # лимит пинов в сутки
+PUBLISH_START_HOUR = 9      # начало публикаций (час)
+PUBLISH_END_HOUR = 24       # конец публикаций (час, 24 = полночь)
 
 CSV_HEADERS = ["Title", "Media URL", "Pinterest board", "Thumbnail",
                "Description", "Link", "Publish date", "Keywords"]
@@ -113,6 +119,47 @@ async def generate_pin_copy(image_bytes: bytes, name: str) -> dict:
                 "keywords": "streetwear, y2k, образ, лук, оверсайз, унисекс, стрит стиль"}
 
 
+# ---------- Расписание ----------
+def _get_next_publish_time() -> str:
+    """Вычисляет следующий слот публикации: последний в CSV + 30 мин, не более 30 в день."""
+    last_dt: datetime | None = None
+    counts: dict = {}   # date -> количество пинов
+
+    if os.path.exists(CSV_PATH):
+        with open(CSV_PATH, encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                raw = row.get("Publish date", "").strip()
+                if not raw:
+                    continue
+                try:
+                    dt = datetime.fromisoformat(raw)
+                    day = dt.date()
+                    counts[day] = counts.get(day, 0) + 1
+                    if last_dt is None or dt > last_dt:
+                        last_dt = dt
+                except ValueError:
+                    pass
+
+    now = datetime.now()
+
+    if last_dt is None:
+        # Первый пин — стартуем с текущего часа (не раньше PUBLISH_START_HOUR)
+        base = now.replace(minute=0, second=0, microsecond=0)
+        if base.hour < PUBLISH_START_HOUR:
+            base = base.replace(hour=PUBLISH_START_HOUR)
+        return base.strftime("%Y-%m-%dT%H:%M:%S")
+
+    next_dt = last_dt + timedelta(minutes=PIN_INTERVAL_MINUTES)
+
+    # Если вышли за конец дня или превысили лимит — переносим на следующий день
+    next_day = next_dt.date()
+    if next_dt.hour >= PUBLISH_END_HOUR or counts.get(next_day, 0) >= PINS_PER_DAY:
+        next_day = next_day + timedelta(days=1)
+        next_dt = datetime(next_day.year, next_day.month, next_day.day, PUBLISH_START_HOUR, 0, 0)
+
+    return next_dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+
 # ---------- CSV ----------
 def _append_rows(rows: list[dict]):
     new_file = not os.path.exists(CSV_PATH)
@@ -148,6 +195,7 @@ async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -
         url = await upload_to_imgbb(img)
         if not url:
             continue
+        publish_at = _get_next_publish_time()
         rows.append({
             "Title": copy.get("title", name)[:100],
             "Media URL": url,
@@ -155,7 +203,7 @@ async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -
             "Thumbnail": "",
             "Description": copy.get("description", "")[:500],
             "Link": TG_LINK,
-            "Publish date": "",
+            "Publish date": publish_at,
             "Keywords": copy.get("keywords", ""),
         })
 
