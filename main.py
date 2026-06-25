@@ -406,11 +406,49 @@ async def cmd_clear_batch(message: types.Message):
         return
     await message.answer(f"✅ Партия архивирована как <code>{archived}</code>. Новая партия начата.", parse_mode="HTML")
 
+# ============ ВСТУПЛЕНИЕ В КАНАЛ ============
+WELCOME_TEXT = (
+    "Приветствую тебя, уважаемый покупатель Berishmot Store! 👋\n\n"
+    "Рады видеть тебя в нашем канале. Здесь ты найдёшь лучшие товары "
+    "в стиле streetwear, old money и y2k по выгодным ценам.\n\n"
+    "📦 Для заказа пиши: @viktor_zorin\n"
+    "💬 Отзывы: @berishmotru"
+)
+
+@dp.chat_join_request()
+async def handle_join_request(update: types.ChatJoinRequest):
+    user = update.from_user
+    # Автоматически одобряем заявку
+    try:
+        await bot.approve_chat_join_request(update.chat.id, user.id)
+    except Exception as e:
+        logger.error(f"Approve error: {e}")
+
+    # Приветствие новому подписчику в личку
+    try:
+        await bot.send_message(user.id, WELCOME_TEXT)
+    except Exception:
+        pass  # пользователь мог не начать диалог с ботом
+
+    # Уведомление администраторам
+    name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Без имени"
+    username = f"@{user.username}" if user.username else "без username"
+    notify = (
+        f"🆕 <b>Новый подписчик</b> в {update.chat.title}\n"
+        f"👤 {name} ({username})\n"
+        f"🔗 tg://user?id={user.id}"
+    )
+    for admin_id in ALLOWED_USERS:
+        try:
+            await bot.send_message(admin_id, notify, parse_mode="HTML")
+        except Exception:
+            pass
+
 # ============ ЗАПУСК ============
 async def main():
     logger.info("🚀 Berishmot Bot v2.1 запущен")
     asyncio.create_task(_queue_worker())
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 if __name__ == "__main__":
     asyncio.run(main())
