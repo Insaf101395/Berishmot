@@ -71,21 +71,25 @@ client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 # ---------- ImgBB: фото -> прямая публичная ссылка ----------
 async def upload_to_imgbb(image_bytes: bytes) -> str | None:
     b64 = base64.b64encode(image_bytes).decode()
-    try:
-        session = await _get_session()
-        async with session.post(
-            "https://api.imgbb.com/1/upload",
-            data={"key": IMGBB_KEY, "image": b64},
-            timeout=aiohttp.ClientTimeout(total=30),
-        ) as resp:
-            data = await resp.json()
-        if not data.get("success"):
-            logger.error(f"ImgBB error: {data}")
-            return None
-        return data["data"]["url"]
-    except Exception as e:
-        logger.error(f"ImgBB exception: {e}")
-        return None
+    for attempt in range(2):
+        try:
+            session = await _get_session()
+            async with session.post(
+                "https://api.imgbb.com/1/upload",
+                data={"key": IMGBB_KEY, "image": b64},
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as resp:
+                data = await resp.json()
+            if not data.get("success"):
+                logger.error(f"ImgBB error: {data}")
+                return None
+            return data["data"]["url"]
+        except Exception as e:
+            logger.warning(f"ImgBB attempt {attempt+1} failed: {e}")
+            if attempt == 0:
+                await asyncio.sleep(3)
+    logger.error("ImgBB: все попытки исчерпаны")
+    return None
 
 
 # ---------- Anthropic: фото -> русский title/description/keywords ----------
