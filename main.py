@@ -1,5 +1,7 @@
 from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import Command
+from aiogram.client.session.aiohttp import AiohttpSession
+import aiohttp as _aiohttp
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
