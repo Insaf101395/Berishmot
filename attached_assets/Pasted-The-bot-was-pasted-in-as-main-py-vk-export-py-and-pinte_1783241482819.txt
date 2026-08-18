@@ -1,0 +1,10 @@
+The bot was pasted in as main.py, vk_export.py, and pinterest_export.py, but after pasting it did not behave correctly (e.g. the "Склад Москва" warehouse button did not show up as expected). Investigation found the likely root cause plus a couple of related correctness/reliability issues that should all be fixed together so the bot actually runs and behaves as the code intends.
+
+Root cause found: .replit runs app.py, not main.py directly. app.py starts its own HTTP server (run_http, binding port 8080) via asyncio.gather, while it also imports and runs main.py's bot_main.main(), which independently starts its own web server (start_web()) on the same port. Two servers competing for the same port causes a crash on startup (asyncio.gather fails when the second bind fails), which likely left a stale/older bot process running instead of the newly pasted code — explaining both "bot didn't work" and "looked like the old bot was running".
+
+Additional issues found during review:
+
+pinterest_export.py's upload_to_imgbb() calls await asyncio.sleep(3) on a failed ImgBB upload attempt, but asyncio is never imported in that file — this throws an unhandled NameError instead of retrying, silently breaking that product's Pinterest pin.
+pyproject.toml does not declare aiohttp or anthropic as dependencies (only aiogram, flask, telethon), even though both are actually used and currently installed. If the environment's dependencies are ever reinstalled from pyproject.toml, the bot will fail to start due to missing packages.
+requirements.txt and pyproject.toml list different, overlapping-but-inconsistent dependency sets — worth reconciling to a single source of truth for this project's package manager.
+Stray run.replit and ru.replit files exist at the project root containing plain text run = "python main.py". These are not actual Replit configuration (only .replit is) and appear to be leftover clutter from the paste — worth removing to avoid future confusion, after confirming they aren't referenced anywhere.

@@ -1,0 +1,31 @@
+Что нашёл
+Главная находка — конфликт двух точек входа. В .replit команда запуска — python3 app.py, а не main.py. При этом:
+
+# app.py
+async def main():
+    await asyncio.gather(run_http(), bot_main.main())
+
+app.py запускает свой веб-сервер (run_http, порт 8080) и одновременно импортирует main.py, где bot_main.main() внутри тоже поднимает start_web() на том же порту 8080. Два сервера пытаются занять один и тот же порт → второй падает с ошибкой "address already in use" → весь процесс через asyncio.gather крашится при старте. Из-за этого вполне может остаться висеть старый процесс бота (с прежней, урезанной логикой без кнопки "Склад Москва"), пока новый — с полным кодом — не может подняться. Это точно объясняет и "бот не работал", и "работал старый бот".
+
+Заодно нашёл несостыковку зависимостей: pyproject.toml (актуальный источник для менеджера пакетов) не содержит aiohttp и anthropic, хотя они реально используются и физически установлены — если окружение когда-нибудь пересоберётся с нуля по pyproject.toml, бот снова перестанет запускаться.
+
+Также в проекте валяются run.replit и ru.replit — это не настоящий конфиг Replit (тот — .replit), а разрозненные файлы-мусор с текстом "python main.py", которые никак не влияют на запуск, но вносят путаницу.
+
+Расширяю черновик задачи, чтобы она закрывала весь путь к рабочему состоянию бота, а не только баг с Pinterest.
+
+
+Edited fix-pinterest-export-bug.md
+Обновляю задачу (заголовок + описание) и повторно предлагаю её на утверждение.
+
+
+Updated and re-proposed bot fix task
+
+Proposed 1 task
+
+Worked for 1 minute
+
+Pasted-The-bot-was-pasted-in-as-main-py-vk-export-py-and-pinte_1783241482819.txt
+Just now
+The user just re-pasted the same task content I already wrote — this looks like an attached file echoing back Task #1's own description, not a new request. That task is already updated and proposed for approval.
+
+Task #1 ("Bring Berishmot bot to a working state") is sitting in Drafts, waiting for your decision. Let me know if you'd like to accept it as-is, or if there's something new you want changed in the plan.
