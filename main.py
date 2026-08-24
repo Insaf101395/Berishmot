@@ -178,17 +178,22 @@ def parse_caption(text: str):
     price = None
     price_mode = None
     price_line_index = None
-    for i, line in enumerate(lines[1:], start=1):
-        parsed = parse_price_line(line)
+    # Цена всегда находится в первой непустой строке после названия.
+    # Благодаря этому любые цифры в многострочном описании сохраняются
+    # и не могут случайно стать ценой.
+    first_content_index = next(
+        (i for i, line in enumerate(lines[1:], start=1) if line.strip()),
+        None,
+    )
+    if first_content_index is not None:
+        parsed = parse_price_line(lines[first_content_index])
         if parsed.value is not None:
             price = parsed.value
             price_mode = parsed.mode
-            price_line_index = i
-            break
-        if parsed.mode == "yuan":
+            price_line_index = first_content_index
+        elif parsed.mode == "yuan":
             price_mode = "yuan"
-            price_line_index = i
-            break
+            price_line_index = first_content_index
 
     if price_line_index is not None:
         # Всё после строки с ценой — единое многострочное описание.
@@ -203,7 +208,7 @@ async def cmd_start(message: types.Message):
     await message.answer(
         "🚀 <b>Berishmot Bot v2.2</b>\n\n"
         "📸 Пришли альбом + подпись в первом фото\n"
-        "💱 Закупку указывай строкой <b>¥235</b>\n"
+        "💱 Закупку указывай строкой из 1–3 цифр, например <b>235</b>\n"
         "⚙️ Курс: /kurs",
         parse_mode="HTML",
         reply_markup=get_start_kb(),
@@ -232,7 +237,7 @@ async def cmd_post(message: types.Message, state: FSMContext):
         f"📸 Пришли альбом (до {MAX_PHOTOS} фото)\n\n"
         "В подписи к первому фото:\n"
         "Название\n"
-        "¥235\n"
+        "235\n"
         "Материалы / состав\n\n"
         "Бот сам посчитает цену в рублях после выбора категории.",
         reply_markup=cancel_inline(),
@@ -257,8 +262,8 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
             await message.answer(
                 "❌ Не нашёл цену в подписи.\n\n"
                 "Формат подписи к первому фото:\n"
-                "<b>Название товара\n¥235\nМатериал / состав</b>\n\n"
-                "Для старых товаров также принимается готовая цена в рублях, например 3500.",
+                "<b>Название товара\n235\nМатериал / состав</b>\n\n"
+                "1–3 цифры — закупка в юанях; 4–6 цифр — готовая цена в рублях.",
                 parse_mode="HTML",
                 reply_markup=cancel_inline()
             )
@@ -300,7 +305,7 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
         await message.answer(
             "📝 Фото получено!\n\n"
             "Теперь пришли альбом <b>с подписью</b> на первом фото:\n\n"
-                "<b>Название товара\nЗакупка (например: ¥235)\nМатериал / состав</b>",
+                "<b>Название товара\nЗакупка (например: 235)\nМатериал / состав</b>",
             parse_mode="HTML",
             reply_markup=cancel_inline()
         )

@@ -107,7 +107,7 @@ YUAN_PATTERN = re.compile(
     r"|([0-9]+(?:[.,][0-9]+)?)\s*(?:[¥￥]|cny|юан(?:ь|я|ей|и)?))"
 )
 YUAN_MARKER_PATTERN = re.compile(r"(?i)[¥￥]|cny|юан")
-RUBLE_PATTERN = re.compile(r"(?<!\d)(\d{4,6})(?!\d)")
+PLAIN_NUMBER_PATTERN = re.compile(r"^\s*([0-9]+(?:[.,][0-9]+)?)\s*$")
 
 
 def parse_price_line(line: str) -> ParsedPrice:
@@ -127,9 +127,23 @@ def parse_price_line(line: str) -> ParsedPrice:
         # за рубли и не позволяем опубликовать товар с неверной ценой.
         return ParsedPrice(None, "yuan")
 
-    ruble_match = RUBLE_PATTERN.search(text)
-    if ruble_match:
-        return ParsedPrice(int(ruble_match.group(1)), "rubles")
+    plain_match = PLAIN_NUMBER_PATTERN.fullmatch(text)
+    if plain_match:
+        raw = plain_match.group(1).replace(",", ".")
+        integer_part = raw.split(".", 1)[0]
+        digits_count = len(integer_part)
+        try:
+            value = Decimal(raw)
+        except InvalidOperation:
+            return ParsedPrice(None, None)
+        if value <= 0:
+            return ParsedPrice(None, None)
+        # В короткой записи знак валюты не нужен:
+        # 1–3 цифры — закупка в юанях, 4–6 цифр — готовая цена в рублях.
+        if digits_count <= 3:
+            return ParsedPrice(value, "yuan")
+        if 4 <= digits_count <= 6 and value == value.to_integral_value():
+            return ParsedPrice(int(value), "rubles")
     return ParsedPrice(None, None)
 
 
