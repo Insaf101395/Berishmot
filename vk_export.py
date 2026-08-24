@@ -71,7 +71,7 @@ def _build_description(sizes: str, material: str) -> str:
     if m and m not in ("Не указано", "—", "-"):
         lines.append(f"{EMOJI_LEAF} {m}")
 
-    lines.append(f"{EMOJI_LEAF} {MATERIALS_NOTE}")
+    lines.append(MATERIALS_NOTE)
     lines.append("")  # пустая строка-отступ перед ссылками
 
     lines.append(f"{EMOJI_GEM} Отзывы: {REVIEWS_URL}")

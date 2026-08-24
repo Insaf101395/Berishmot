@@ -127,7 +127,7 @@ def _build_post_text(name: str, new_price, old_price, material: str, sizes: str,
         f"📏 <b>Размеры:</b> {safe_sizes}\n\n"
         f"💸 <b>Цена:</b> {safe_new_price}₽ <s>{safe_old_price}₽</s>\n\n"
         f"🪴 <b>Материалы:</b> {safe_material}\n"
-        f"🪴 {MATERIALS_NOTE}\n\n"
+        f"{MATERIALS_NOTE}\n\n"
         f"🚀 {wh_text}\n\n"
         f"🔗 <a href='{catalog_url}'>{catalog_label}</a>\n\n"
         f"🫶 Бесплатный обмен/возврат\n\n"
@@ -165,21 +165,22 @@ def cancel_inline():
 def parse_caption(text: str):
     if not text:
         return "Без названия", None, "Не указано"
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    name = lines[0] if lines else "Без названия"
+    lines = text.splitlines()
+    name = lines[0].strip() if lines else "Без названия"
     price = None
-    material = "Не указано"
-    material_keywords = ["материал", "состав", "ткань", "хлопок", "полиэстер", "эластан", "нейлон", "флис", "кожа", "замша", "шерпа", "синтетика", "вискоза", "%"]
-    for i, line in enumerate(lines):
-        if price is None:
-            price_match = re.search(r"(\d{4,6})", line)
-            if price_match:
-                price = int(price_match.group(1))
-                continue
-        line_lower = line.lower()
-        if any(kw in line_lower for kw in material_keywords) or (price is not None and len(line) > 8 and not re.search(r"\d{2}[-–]\d{2}", line)):
-            material = line
+    price_line_index = None
+    for i, line in enumerate(lines[1:], start=1):
+        price_match = re.search(r"(\d{4,6})", line)
+        if price_match:
+            price = int(price_match.group(1))
+            price_line_index = i
             break
+
+    if price_line_index is not None:
+        # Всё после строки с ценой — единое многострочное описание.
+        material = "\n".join(lines[price_line_index + 1:]).strip() or "Не указано"
+    else:
+        material = "Не указано"
     if price is None and len(lines) > 1:
         try:
             price = int(re.search(r"\d{4,6}", lines[1]).group())
@@ -204,6 +205,7 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
     photos = data.get("photos", [])
     processed = data.get("caption_processed", False)
     reminded = data.get("caption_reminded", False)
+    completion_notified = data.get("photos_completion_notified", False)
 
     photo_id = message.photo[-1].file_id
     if photo_id not in photos and len(photos) < MAX_PHOTOS:
@@ -257,7 +259,8 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
             reply_markup=cancel_inline()
         )
 
-    if len(photos) >= MAX_PHOTOS:
+    if len(photos) >= MAX_PHOTOS and not completion_notified:
+        await state.update_data(photos_completion_notified=True)
         await message.answer(f"✅ {MAX_PHOTOS} фото добавлено", reply_markup=cancel_inline())
 
 async def show_category_inline(message: types.Message):
