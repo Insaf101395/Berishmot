@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<yml_catalog date="2026-08-23 09:00">
+  <shop>
+    <name>Berishmot Store</name>
+    <company>Berishmot Store</company>
+    <url>https://vk.com/berishmotvk</url>
+    <currencies>
+      <currency id="RUB" rate="1"/>
+    </currencies>
+    <categories>
+      <category id="1">Обувь</category>
+      <category id="2">Одежда</category>
+      <category id="3">Аксессуары</category>
+      <category id="4">Сумки и кошельки</category>
+    </categories>
+    <offers>
+      <offer id="1" available="true">
+        <price>9990</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://i.ibb.co/Q7HmbjH0/fb160ae33010.jpg</picture>
+        <picture>https://i.ibb.co/DH7LG3LN/07612d332960.jpg</picture>
+        <picture>https://i.ibb.co/JjZXfVYm/8bf54bf09dda.jpg</picture>
+        <picture>https://i.ibb.co/YFz54qf6/a4be70536d69.jpg</picture>
+        <picture>https://i.ibb.co/Y74qxSXC/b96ea01698f8.jpg</picture>
+        <name>Костюм Prada</name>
+        <description>🌿 Размеры: S–M–L–XL–2XL–3XL
+🌿 Ткань жаккард.
+
+💎 Отзывы: https://vk.com/topic-147969195_35462100?post=7351
+💎 Гарантии: https://vk.com/topic-147969195_35466647</description>
+      </offer>
+      <offer id="2" available="true">
+        <price>7490</price>
+        <currencyId>RUB</currencyId>
+        <categoryId>2</categoryId>
+        <picture>https://i.ibb.co/d4PfpS0h/690328ce33b6.jpg</picture>
+        <picture>https://i.ibb.co/d4Qb2TqX/fd801dbce95f.jpg</picture>
+        <picture>https://i.ibb.co/nTMP3Ls/48a1d1d5ee2a.jpg</picture>
+        <picture>https://i.ibb.co/Kx9VNJQZ/61ed813d78f2.jpg</picture>
+        <picture>https://i.ibb.co/fzWHqKxM/2eff37d1f678.jpg</picture>
+        <name>Бомбер Stone Island x Dior</name>
+        <description>🌿 Размеры: S–M–L–XL–2XL–3XL
+🌿 Непромокаемый. Все материалы, бирки, фурнитура соответствует. 1:1.
+
+💎 Отзывы: https://vk.com/topic-147969195_35462100?post=7351
+💎 Гарантии: https://vk.com/topic-147969195_35466647</description>
+      </offer>
+    </offers>
+  </shop>
+</yml_catalog>
