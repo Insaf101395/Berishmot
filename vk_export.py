@@ -1,5 +1,4 @@
 import os
-import io
 import json
 import base64
 import asyncio
@@ -21,6 +20,7 @@ GUARANTEES_URL = "https://vk.com/topic-147969195_35466647"
 # Эмодзи-стикеры как на скринах
 EMOJI_LEAF = "🌿"   # размеры / материал
 EMOJI_GEM = "💎"    # отзывы / гарантии
+MATERIALS_NOTE = "Все материалы, бирки, фурнитура соответствует. 1:1."
 
 # Файлы партии
 VK_STORE = "vk_batch.jsonl"   # накопитель offer'ов (по строке JSON на товар)
@@ -71,8 +71,8 @@ def _build_description(sizes: str, material: str) -> str:
     if m and m not in ("Не указано", "—", "-"):
         lines.append(f"{EMOJI_LEAF} {m}")
 
-    if lines:
-        lines.append("")  # пустая строка-отступ перед ссылками
+    lines.append(f"{EMOJI_LEAF} {MATERIALS_NOTE}")
+    lines.append("")  # пустая строка-отступ перед ссылками
 
     lines.append(f"{EMOJI_GEM} Отзывы: {REVIEWS_URL}")
     lines.append(f"{EMOJI_GEM} Гарантии: {GUARANTEES_URL}")
