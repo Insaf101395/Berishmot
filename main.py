@@ -23,7 +23,7 @@ post_queue: deque = deque()
 last_published_at: datetime | None = None
 MIN_INTERVAL = 5 * 60  # секунд между постами
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
-MATERIALS_NOTE = "Все материалы, бирки, фурнитура соответствует. 1:1."
+MATERIALS_NOTE = "Все материалы, бирки, фурнитура соответствуют. 1:1."
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
