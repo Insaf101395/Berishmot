@@ -17,6 +17,14 @@ from zoneinfo import ZoneInfo
 
 import pinterest_export as pe
 import vk_export as vke
+from price_calc import (
+    PriceCalculationError,
+    calculate_price,
+    format_rate,
+    get_exchange_rate,
+    parse_price_line,
+    set_exchange_rate,
+)
 
 # ============ ОЧЕРЕДЬ ПУБЛИКАЦИЙ ============
 post_queue: deque = deque()
@@ -164,15 +172,21 @@ def cancel_inline():
 # ============ ПАРСЕР ============
 def parse_caption(text: str):
     if not text:
-        return "Без названия", None, "Не указано"
+        return "Без названия", None, "Не указано", None
     lines = text.splitlines()
     name = lines[0].strip() if lines else "Без названия"
     price = None
+    price_mode = None
     price_line_index = None
     for i, line in enumerate(lines[1:], start=1):
-        price_match = re.search(r"(\d{4,6})", line)
-        if price_match:
-            price = int(price_match.group(1))
+        parsed = parse_price_line(line)
+        if parsed.value is not None:
+            price = parsed.value
+            price_mode = parsed.mode
+            price_line_index = i
+            break
+        if parsed.mode == "yuan":
+            price_mode = "yuan"
             price_line_index = i
             break
 
@@ -181,23 +195,48 @@ def parse_caption(text: str):
         material = "\n".join(lines[price_line_index + 1:]).strip() or "Не указано"
     else:
         material = "Не указано"
-    if price is None and len(lines) > 1:
-        try:
-            price = int(re.search(r"\d{4,6}", lines[1]).group())
-        except (AttributeError, TypeError, ValueError):
-            pass
-    return name, price, material
+    return name, price, material, price_mode
 
 # ============ ХЕНДЛЕРЫ ============
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("🚀 <b>Berishmot Bot v2.2</b>\n\n📸 Пришли альбом + подпись в первом фото", parse_mode="HTML", reply_markup=get_start_kb())
+    await message.answer(
+        "🚀 <b>Berishmot Bot v2.2</b>\n\n"
+        "📸 Пришли альбом + подпись в первом фото\n"
+        "💱 Закупку указывай строкой <b>¥235</b>\n"
+        "⚙️ Курс: /kurs",
+        parse_mode="HTML",
+        reply_markup=get_start_kb(),
+    )
+
+
+@dp.message(Command("kurs"))
+async def cmd_kurs(message: types.Message):
+    """Показывает или меняет курс юаня для будущих товаров."""
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) == 1:
+        await message.answer(f"💱 Текущий курс: 1 ¥ = {format_rate(get_exchange_rate())} ₽")
+        return
+    try:
+        rate = set_exchange_rate(parts[1].strip())
+    except PriceCalculationError as exc:
+        await message.answer(f"❌ {exc}")
+        return
+    await message.answer(f"✅ Курс сохранён: 1 ¥ = {format_rate(rate)} ₽")
 
 @dp.message(Command("post"))
 async def cmd_post(message: types.Message, state: FSMContext):
     await state.clear()
     await state.set_state(PostForm.waiting_for_photos_and_text)
-    await message.answer(f"📸 Пришли альбом (до {MAX_PHOTOS} фото)\n\nВ подписи к первому фото:\nНазвание\nЦена\nМатериалы / состав", reply_markup=cancel_inline())
+    await message.answer(
+        f"📸 Пришли альбом (до {MAX_PHOTOS} фото)\n\n"
+        "В подписи к первому фото:\n"
+        "Название\n"
+        "¥235\n"
+        "Материалы / состав\n\n"
+        "Бот сам посчитает цену в рублях после выбора категории.",
+        reply_markup=cancel_inline(),
+    )
 
 @dp.message(PostForm.waiting_for_photos_and_text, F.photo)
 async def process_photos_with_caption(message: types.Message, state: FSMContext):
@@ -213,13 +252,13 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
         await state.update_data(photos=photos)
 
     if not processed and message.caption:
-        name, price, material = parse_caption(message.caption)
-        if not price:
+        name, price, material, price_mode = parse_caption(message.caption)
+        if price is None:
             await message.answer(
                 "❌ Не нашёл цену в подписи.\n\n"
                 "Формат подписи к первому фото:\n"
-                "<b>Название товара\n3500\nМатериал / состав</b>\n\n"
-                "Цена должна быть числом от 1000 до 999999.",
+                "<b>Название товара\n¥235\nМатериал / состав</b>\n\n"
+                "Для старых товаров также принимается готовая цена в рублях, например 3500.",
                 parse_mode="HTML",
                 reply_markup=cancel_inline()
             )
@@ -227,8 +266,15 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
 
         # Флаг выставляем только после успешной валидации
         await state.update_data(caption_processed=True)
-        old_price = int(price * 1.3)
-        await state.update_data(name=name, new_price=price, old_price=old_price, material=material)
+        old_price = int(price * 1.3) if price_mode == "rubles" else None
+        await state.update_data(
+            name=name,
+            source_price=price,
+            price_mode=price_mode,
+            new_price=price if price_mode == "rubles" else None,
+            old_price=old_price,
+            material=material,
+        )
 
         full_text = (message.caption or "") + (name or "")
         is_shoe = any(kw.lower() in full_text.lower() for kw in SHOE_KEYWORDS)
@@ -254,7 +300,7 @@ async def process_photos_with_caption(message: types.Message, state: FSMContext)
         await message.answer(
             "📝 Фото получено!\n\n"
             "Теперь пришли альбом <b>с подписью</b> на первом фото:\n\n"
-            "<b>Название товара\nЦена (например: 3500)\nМатериал / состав</b>",
+                "<b>Название товара\nЗакупка (например: ¥235)\nМатериал / состав</b>",
             parse_mode="HTML",
             reply_markup=cancel_inline()
         )
@@ -286,8 +332,31 @@ async def choose_category_callback(callback: types.CallbackQuery, state: FSMCont
     cat = callback.data.split(":", 1)[1]
     if cat == "main_only":
         cat = "Только в основной канал"
+
+    data = await state.get_data()
+    if data.get("price_mode") == "yuan":
+        try:
+            calculation = calculate_price(
+                data.get("source_price"),
+                cat,
+                f"{data.get('name', '')}\n{data.get('material', '')}",
+            )
+        except PriceCalculationError as exc:
+            await callback.answer()
+            await callback.message.answer(f"❌ {exc}\n\nДобавь тип вещи в название и выбери категорию ещё раз.")
+            return
+        new_price = calculation.price
+        await state.update_data(
+            new_price=new_price,
+            old_price=int(new_price * 1.3),
+            calculator_category=calculation.category_label,
+        )
+        category_status = f"✅ Категория: {cat}\n💱 Цена рассчитана: {new_price} ₽"
+    else:
+        category_status = f"✅ Категория: {cat}"
+
     await state.update_data(category=cat)
-    await callback.message.edit_text(f"✅ Категория: {cat}")
+    await callback.message.edit_text(category_status)
     builder = InlineKeyboardBuilder()
     for w in WAREHOUSE_OPTIONS:
         builder.button(text=w, callback_data=f"wh:{w}")
