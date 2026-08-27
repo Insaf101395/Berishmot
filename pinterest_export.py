@@ -9,7 +9,9 @@ import csv
 import json
 import os
 import base64
+import asyncio
 import logging
+import re
 from datetime import datetime, timedelta
 
 import aiohttp
@@ -108,6 +110,81 @@ Rules:
 Product name from seller: {name}"""
 
 
+BRAND_NAMES = [
+    # Магазинные и самые распространённые бренды
+    "Stone Island Shadow Project", "Stone Island", "Nike", "Adidas",
+    "New Balance", "Dior", "Christian Dior", "Prada", "Gucci",
+    "Balenciaga", "Off-White", "Supreme", "The North Face", "Canada Goose",
+    "Moncler", "Louis Vuitton", "Burberry", "Chanel", "Fendi", "Versace",
+    "Valentino", "Givenchy", "Saint Laurent", "Yves Saint Laurent",
+    "Alexander McQueen", "Maison Margiela", "Margiela", "Celine", "Loewe",
+    "Bottega Veneta", "Jacquemus", "Acne Studios", "Palm Angels",
+    "Fear of God", "Essentials", "Amiri", "Rhude", "Kith", "Stussy",
+    "Carhartt WIP", "Carhartt", "Patagonia", "Arc'teryx", "Columbia",
+    "Ralph Lauren", "Polo Ralph Lauren", "Tommy Hilfiger", "Calvin Klein",
+    "Lacoste", "Hugo Boss", "Boss", "Armani", "Emporio Armani",
+    "Dsquared2", "Dolce & Gabbana", "Dolce Gabbana", "Miu Miu",
+    "Maison Kitsune", "Kenzo", "Comme des Garcons", "Comme des Garçons",
+    "A Bathing Ape", "BAPE", "Human Made", "Neighborhood", "WTAPS",
+    "Undercover", "C.P. Company", "CP Company", "Loro Piana",
+    "Zegna", "Brunello Cucinelli", "Lululemon", "Salomon", "Asics",
+    "Puma", "Converse", "Vans", "Reebok", "Jordan", "Air Jordan",
+    "Yeezy", "New Era", "UGG", "Timberland", "Dr. Martens", "Crocs",
+    "Birkenstock", "Hoka", "On Running", "Skechers", "Balmain",
+    "Telfar", "Michael Kors", "Coach", "Kate Spade", "Marc Jacobs",
+    "Guess", "Diesel", "G-Star", "Levi's", "Wrangler", "Lee",
+    "The Hundreds", "A-Cold-Wall", "A Cold Wall", "Daily Paper",
+    "Represent", "Cav Empt", "Visvim", "Maharishi", "Stone Island Marina",
+    "Sergio Tacchini", "Fred Perry", "Ellesse", "Fila", "Champion",
+    "Under Armour", "New Balance Numeric", "Nike SB", "Adidas Originals",
+    "Adidas Yeezy", "Timberland PRO", "Dr. Martens", "Veja", "Saucony",
+    "Mizuno", "Onitsuka Tiger", "Asics Tiger", "The Kooples", "AllSaints",
+    "Massimo Dutti", "Zara", "H&M", "Uniqlo", "COS", "Arket",
+    "Abercrombie & Fitch", "Victoria's Secret", "Palm Angels",
+]
+
+_BRAND_PATTERN = re.compile(
+    r"(?<!\w)(?:"
+    + "|".join(re.escape(brand) for brand in sorted(BRAND_NAMES, key=len, reverse=True))
+    + r")(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _clean_anthropic_json(raw_text: str) -> str:
+    """Убирает markdown fence вокруг JSON, если модель его добавила."""
+    cleaned = str(raw_text or "").strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def filter_brand_names(value: object) -> str:
+    """Удаляет бренды и аккуратно схлопывает оставшиеся пробелы."""
+    text = str(value or "")
+    text = _BRAND_PATTERN.sub("", text)
+    # Убираем одиночный x/×, который часто остаётся от коллабораций
+    # после удаления конструкции вроде «Stone Island x Dior».
+    text = re.sub(r"(?i)(?<!\w)[x×](?!\w)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = re.sub(r"([,;/|])\s*(?=[,;/|])", r"\1", text)
+    return text.strip(" ,;:/|-–—")
+
+
+def sanitize_pin_copy(copy: object, fallback_name: str = "") -> dict:
+    """Финальный защитный слой перед записью title/description/keywords."""
+    data = copy if isinstance(copy, dict) else {}
+    title = filter_brand_names(data.get("title") or fallback_name)
+    if len(title) < 3:
+        title = "Streetwear outfit"
+    return {
+        "title": title[:100],
+        "description": filter_brand_names(data.get("description", ""))[:500],
+        "keywords": filter_brand_names(data.get("keywords", "")),
+    }
+
+
 async def generate_pin_copy(image_bytes: bytes, name: str) -> dict:
     b64 = base64.b64encode(image_bytes).decode()
     try:
@@ -123,7 +200,7 @@ async def generate_pin_copy(image_bytes: bytes, name: str) -> dict:
                 ],
             }],
         )
-        raw = msg.content[0].text.strip().replace("```json", "").replace("```", "").strip()
+        raw = _clean_anthropic_json(msg.content[0].text)
         return json.loads(raw)
     except Exception as e:
         logger.error(f"Anthropic/JSON fail: {e}")
@@ -202,7 +279,10 @@ async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -
         return 0, _count()
 
     board = BOARD_MAP.get(category, DEFAULT_BOARD)
-    copy = await generate_pin_copy(photo_bytes_list[0], name)   # текст один раз по первому фото
+    copy = sanitize_pin_copy(
+        await generate_pin_copy(photo_bytes_list[0], name),
+        fallback_name=name,
+    )
 
     rows = []
     for img in photo_bytes_list[:PINS_PER_PRODUCT]:
