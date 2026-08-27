@@ -101,7 +101,7 @@ Based on the product photo and name, return JSON in exactly this format:
 {{"title": "...", "description": "...", "keywords": "..."}}
 
 Rules:
-- title: up to 90 characters, in English, start with item type + style/aesthetic.
+- title: up to 90 characters, in English. Create a natural, premium-sounding Pinterest title from the item's type, silhouette, materials, color, mood, and aesthetic. Use descriptive adjectives and aesthetic terms so it sounds like an organic style description, not a technical generic label. Never reveal or hint at any brand: do not use direct names, encoded names, lookalike spellings, rearranged letters, initials, emojis, or indirect clues. Good example: "Vintage-style bomber jacket, streetwear essential". Bad example: "Stone Island Bomber" or "Bomber jacket".
 - description: 1-2 sentences — what it is, how to style it, aesthetic vibe. NO calls to action ("buy", "order", "dm us"). Up to 400 characters.
 - keywords: 8-10 keywords separated by commas, mix of item type + aesthetic terms (streetwear, y2k, old money, blokecore, quiet luxury, etc).
 - NEVER mention brand names (Nike, Adidas, Supreme, Margiela, etc) — replace with item type or aesthetic.
