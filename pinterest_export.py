@@ -32,7 +32,7 @@ async def _get_session() -> aiohttp.ClientSession:
 IMGBB_KEY = os.getenv("IMGBB_KEY")                  # ключ с imgbb.com -> About -> API
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # твой ключ Anthropic
 
-MODEL = "claude-3-5-sonnet-20241022"  # качество. Дешевле: "claude-3-haiku-20240307"
+MODEL = "claude-sonnet-4-6"  # качество. Дешевле: "claude-haiku-4-5-20251001"
 PINS_PER_PRODUCT = 1               # сколько первых фото -> сколько пинов на товар
 CSV_PATH = "pinterest_batch.csv"   # текущая партия
 TG_LINK = "https://t.me/+0uo05xuDQ1M2NWVi"   # ссылка-воронка под каждым пином
