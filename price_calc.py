@@ -34,6 +34,14 @@ class PriceRule:
 
 
 @dataclass(frozen=True)
+class DeliveryPriceRule:
+    label: str
+    delivery_yuan: Decimal
+    profit_rubles: Decimal
+    rounding: int
+
+
+@dataclass(frozen=True)
 class ParsedPrice:
     value: int | Decimal | None
     mode: str | None
@@ -100,6 +108,23 @@ PRICE_RULES: dict[str, PriceRule] = {
     "glasses": _rule("6", "1500", 10, "Очки"),
 }
 
+FIXED_PURCHASE_COST_YUAN = Decimal("40")
+
+DELIVERY_PRICE_RULES: dict[str, DeliveryPriceRule] = {
+    "leather_outerwear": DeliveryPriceRule(
+        label="Замшевые / кожаные куртки",
+        delivery_yuan=Decimal("150"),
+        profit_rubles=Decimal("4250"),
+        rounding=90,
+    ),
+    "puffer_jacket": DeliveryPriceRule(
+        label="Пуховики",
+        delivery_yuan=Decimal("175"),
+        profit_rubles=Decimal("8000"),
+        rounding=90,
+    ),
+}
+
 
 YUAN_PATTERN = re.compile(
     r"(?ix)"
@@ -156,15 +181,20 @@ def _has(text: str, *parts: str) -> bool:
     return any(part in normalized for part in parts)
 
 
+LEATHER_OUTERWEAR_TRIGGERS = (
+    "замша", "замшевая", "замшевый",
+    "дубленка",
+    "кожа", "кожаная", "кожаный", "кожаное",
+)
+
+
 def _detect_from_text(text: str) -> str | None:
     """Определяет тип вещи по наиболее специфичным словам."""
     checks: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("heavy_jacket", (
             "canada goose", "canada", "the north face", "tnf",
             "тяжелая куртка", "тяжелая",
-            "замша", "замшевая", "замшевый",
-            "дубленка",
-            "кожа", "кожаная", "кожаный", "кожаное",
+            *LEATHER_OUTERWEAR_TRIGGERS,
         )),
         ("light_winter_jacket", ("пуховик", "куртка зимняя", "зимняя куртка")),
         ("fall_outerwear", ("бомбер", "джинсовка", "жилет")),
@@ -221,10 +251,14 @@ def resolve_category(store_category: str, text: str = "") -> str | None:
     if "сумк" in category or "кошел" in category:
         return "wallets" if detected == "wallets" else "bags"
     if "куртк" in category or "ветров" in category:
+        if _has(text, *LEATHER_OUTERWEAR_TRIGGERS):
+            return "leather_outerwear"
         return detected if detected in {
             "heavy_jacket", "light_winter_jacket", "fall_outerwear", "windbreaker"
         } else "windbreaker"
     if "зима" in category:
+        if _has(text, "пуховик"):
+            return "puffer_jacket"
         return detected if detected in {"heavy_jacket", "light_winter_jacket"} else "light_winter_jacket"
     if "костюм" in category:
         return "suits"
@@ -286,6 +320,15 @@ def format_rate(rate: Decimal | None = None) -> str:
     return format(value.normalize(), "f")
 
 
+def _round_price(raw_price: Decimal, rounding: int) -> Decimal:
+    if rounding == 90:
+        rounded = (
+            (raw_price - Decimal("90")) / Decimal("100")
+        ).to_integral_value(rounding=ROUND_FLOOR) * Decimal("100") + Decimal("90")
+        return max(Decimal("90"), rounded)
+    return (raw_price / Decimal("10")).to_integral_value(rounding=ROUND_HALF_UP) * Decimal("10")
+
+
 def calculate_price(
     purchase_yuan: int | float | str | Decimal,
     store_category: str,
@@ -302,12 +345,33 @@ def calculate_price(
 
     selected_rate = rate if rate is not None else get_exchange_rate()
     category_key = resolve_category(store_category, text)
-    if not category_key or category_key not in PRICE_RULES:
+    if not category_key or (
+        category_key not in PRICE_RULES
+        and category_key not in DELIVERY_PRICE_RULES
+    ):
         raise PriceCalculationError(
             "Не понял тип товара для калькулятора. "
             "Добавь тип в название или материал: "
             "кроссовки, ботинки, худи, футболка, рубашка, "
             "ремень, рюкзак, часы и т. п."
+        )
+
+    if category_key in DELIVERY_PRICE_RULES:
+        delivery_rule = DELIVERY_PRICE_RULES[category_key]
+        raw_price = (
+            purchase
+            + FIXED_PURCHASE_COST_YUAN
+            + delivery_rule.delivery_yuan
+        ) * selected_rate + delivery_rule.profit_rubles
+        rounded = _round_price(raw_price, delivery_rule.rounding)
+        return Calculation(
+            price=int(rounded),
+            category_key=category_key,
+            category_label=delivery_rule.label,
+            purchase_yuan=purchase,
+            rate=selected_rate,
+            raw_price=raw_price,
+            modifiers=(),
         )
 
     rule = PRICE_RULES[category_key]
@@ -321,13 +385,7 @@ def calculate_price(
             applied_modifiers.append(f"{modifier_name} {sign}{format(modifier_value, 'f')} ₽")
 
     raw_price = purchase * (selected_rate + rule.slope) + rule.base + modifier_total
-    if rule.rounding == 90:
-        rounded = (
-            (raw_price - Decimal("90")) / Decimal("100")
-        ).to_integral_value(rounding=ROUND_FLOOR) * Decimal("100") + Decimal("90")
-        rounded = max(Decimal("90"), rounded)
-    else:
-        rounded = (raw_price / Decimal("10")).to_integral_value(rounding=ROUND_HALF_UP) * Decimal("10")
+    rounded = _round_price(raw_price, rule.rounding)
 
     return Calculation(
         price=int(rounded),
