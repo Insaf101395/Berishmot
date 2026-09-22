@@ -115,13 +115,13 @@ DELIVERY_PRICE_RULES: dict[str, DeliveryPriceRule] = {
         label="Замшевые / кожаные куртки",
         delivery_yuan=Decimal("150"),
         profit_rubles=Decimal("4250"),
-        rounding=90,
+        rounding=990,
     ),
     "puffer_jacket": DeliveryPriceRule(
         label="Пуховики",
         delivery_yuan=Decimal("175"),
         profit_rubles=Decimal("8000"),
-        rounding=90,
+        rounding=990,
     ),
 }
 
@@ -321,6 +321,11 @@ def format_rate(rate: Decimal | None = None) -> str:
 
 
 def _round_price(raw_price: Decimal, rounding: int) -> Decimal:
+    if rounding == 990:
+        rounded = (
+            (raw_price - Decimal("990")) / Decimal("1000")
+        ).to_integral_value(rounding=ROUND_FLOOR) * Decimal("1000") + Decimal("990")
+        return max(Decimal("990"), rounded)
     if rounding == 90:
         rounded = (
             (raw_price - Decimal("90")) / Decimal("100")
