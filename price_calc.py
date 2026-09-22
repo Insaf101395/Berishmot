@@ -74,7 +74,7 @@ PRICE_RULES: dict[str, PriceRule] = {
     "pants": _rule("5", "3540", 90, "Штаны / джинсы"),
     "shorts": _rule("8", "1600", 90, "Шорты"),
     # Верхняя одежда
-    "heavy_jacket": _rule("0.3", "10500", 90, "Куртки тяжёлые"),
+    "heavy_jacket": _rule("0.3", "14500", 90, "Куртки тяжёлые"),
     "light_winter_jacket": _rule("2", "8200", 90, "Пуховики лёгкие / куртки зимние"),
     "fall_outerwear": _rule("5", "3000", 90, "Джинсовки / бомберы / жилеты осенние"),
     "windbreaker": _rule("5", "2800", 90, "Ветровки / анораки"),
@@ -159,7 +159,13 @@ def _has(text: str, *parts: str) -> bool:
 def _detect_from_text(text: str) -> str | None:
     """Определяет тип вещи по наиболее специфичным словам."""
     checks: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("heavy_jacket", ("canada goose", "canada", "the north face", "tnf", "тяжелая куртка", "тяжелая")),
+        ("heavy_jacket", (
+            "canada goose", "canada", "the north face", "tnf",
+            "тяжелая куртка", "тяжелая",
+            "замша", "замшевая", "замшевый",
+            "дубленка",
+            "кожа", "кожаная", "кожаный", "кожаное",
+        )),
         ("light_winter_jacket", ("пуховик", "куртка зимняя", "зимняя куртка")),
         ("fall_outerwear", ("бомбер", "джинсовка", "жилет")),
         ("windbreaker", ("ветровка", "анорак")),
