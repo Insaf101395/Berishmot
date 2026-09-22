@@ -240,6 +240,11 @@ def _next_pin_link() -> str:
     return f"{TG_LINK}?pin={_pin_link_counter}"
 
 
+def normalize_media_url(url: str) -> str:
+    """Меняет только конечное расширение .jpg на допустимое Pinterest .jpeg."""
+    return re.sub(r"\.jpg$", ".jpeg", str(url or ""), flags=re.IGNORECASE)
+
+
 # ---------- Главная функция: добавить товар ----------
 async def add_product(
     photo_bytes_list: list[bytes],
@@ -265,9 +270,10 @@ async def add_product(
         url = await upload_to_imgbb(img)
         if not url:
             continue
+        media_url = normalize_media_url(url)
         rows.append({
             "Title": copy.get("title", name)[:100],
-            "Media URL": url,
+            "Media URL": media_url,
             "Pinterest board": board,
             "Thumbnail": "",
             "Description": copy.get("description", "")[:500],
