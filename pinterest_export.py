@@ -289,7 +289,6 @@ async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -
         url = await upload_to_imgbb(img)
         if not url:
             continue
-        publish_at = _get_next_publish_time()
         rows.append({
             "Title": copy.get("title", name)[:100],
             "Media URL": url,
@@ -297,7 +296,7 @@ async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -
             "Thumbnail": "",
             "Description": copy.get("description", "")[:500],
             "Link": TG_LINK,
-            "Publish date": publish_at,
+            "Publish date": "",
             "Keywords": copy.get("keywords", ""),
         })
 
