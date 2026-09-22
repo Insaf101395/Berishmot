@@ -32,7 +32,7 @@ IMGBB_KEY = os.getenv("IMGBB_KEY")                  # ключ с imgbb.com -> A
 
 PINS_PER_PRODUCT = 1               # сколько первых фото -> сколько пинов на товар
 CSV_PATH = "pinterest_batch.csv"   # текущая партия
-TG_LINK = "https://t.me/+0uo05xuDQ1M2NWVi"   # ссылка-воронка под каждым пином
+TG_LINK = "https://berishmot.store/"   # базовая ссылка под каждым пином
 
 # --- Расписание пинов ---
 PIN_INTERVAL_MINUTES = 30   # интервал между пинами
@@ -231,6 +231,15 @@ def _count() -> int:
         return max(0, sum(1 for _ in f) - 1)   # минус строка заголовка
 
 
+_pin_link_counter = _count()
+
+
+def _next_pin_link() -> str:
+    global _pin_link_counter
+    _pin_link_counter += 1
+    return f"{TG_LINK}?pin={_pin_link_counter}"
+
+
 # ---------- Главная функция: добавить товар ----------
 async def add_product(
     photo_bytes_list: list[bytes],
@@ -262,7 +271,7 @@ async def add_product(
             "Pinterest board": board,
             "Thumbnail": "",
             "Description": copy.get("description", "")[:500],
-            "Link": TG_LINK,
+            "Link": _next_pin_link(),
             "Publish date": "",
             "Keywords": copy.get("keywords", ""),
         })
