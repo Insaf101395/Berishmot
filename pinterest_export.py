@@ -1,12 +1,11 @@
 """
 pinterest_export.py
-Модуль для бота Berishmot: товар из TG -> ImgBB -> Anthropic (русский текст) -> строка в CSV.
+Модуль для бота Berishmot: товар из TG -> ImgBB -> локальный текст -> строка в CSV.
 В конце ты вызываешь /export и заливаешь готовый CSV в Pinterest (Настройки -> Импорт контента).
 Никакого Pinterest API / OAuth / Standard не нужно.
 """
 
 import csv
-import json
 import os
 import base64
 import asyncio
@@ -15,7 +14,7 @@ import re
 from datetime import datetime, timedelta
 
 import aiohttp
-from anthropic import AsyncAnthropic
+import title_gen
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +29,7 @@ async def _get_session() -> aiohttp.ClientSession:
 
 # ====================== НАСТРОЙКИ (меняешь под себя) ======================
 IMGBB_KEY = os.getenv("IMGBB_KEY")                  # ключ с imgbb.com -> About -> API
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")  # твой ключ Anthropic
 
-MODEL = "claude-sonnet-4-6"  # качество. Дешевле: "claude-haiku-4-5-20251001"
 PINS_PER_PRODUCT = 1               # сколько первых фото -> сколько пинов на товар
 CSV_PATH = "pinterest_batch.csv"   # текущая партия
 TG_LINK = "https://t.me/+0uo05xuDQ1M2NWVi"   # ссылка-воронка под каждым пином
@@ -67,9 +64,6 @@ BOARD_MAP = {
 DEFAULT_BOARD = "Streetwear"
 # =========================================================================
 
-client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
-
 # ---------- ImgBB: фото -> прямая публичная ссылка ----------
 async def upload_to_imgbb(image_bytes: bytes) -> str | None:
     b64 = base64.b64encode(image_bytes).decode()
@@ -92,22 +86,6 @@ async def upload_to_imgbb(image_bytes: bytes) -> str | None:
                 await asyncio.sleep(3)
     logger.error("ImgBB: все попытки исчерпаны")
     return None
-
-
-# ---------- Anthropic: фото -> русский title/description/keywords ----------
-PROMPT = """You are an SEO copywriter for Pinterest. Clothing and footwear store in streetwear / y2k / old money aesthetic. English-speaking international audience.
-
-Based on the product photo and name, return JSON in exactly this format:
-{{"title": "...", "description": "...", "keywords": "..."}}
-
-Rules:
-- title: up to 90 characters, in English. Create a natural, premium-sounding Pinterest title from the item's type, silhouette, materials, color, mood, and aesthetic. Use descriptive adjectives and aesthetic terms so it sounds like an organic style description, not a technical generic label. Never reveal or hint at any brand: do not use direct names, encoded names, lookalike spellings, rearranged letters, initials, emojis, or indirect clues. Good example: "Vintage-style bomber jacket, streetwear essential". Bad example: "Stone Island Bomber" or "Bomber jacket".
-- description: 1-2 sentences — what it is, how to style it, aesthetic vibe. NO calls to action ("buy", "order", "dm us"). Up to 400 characters.
-- keywords: 8-10 keywords separated by commas, mix of item type + aesthetic terms (streetwear, y2k, old money, blokecore, quiet luxury, etc).
-- NEVER mention brand names (Nike, Adidas, Supreme, Margiela, etc) — replace with item type or aesthetic.
-- Return ONLY JSON. No markdown, no triple quotes, no explanations.
-
-Product name from seller: {name}"""
 
 
 BRAND_NAMES = [
@@ -151,14 +129,6 @@ _BRAND_PATTERN = re.compile(
 )
 
 
-def _clean_anthropic_json(raw_text: str) -> str:
-    """Убирает markdown fence вокруг JSON, если модель его добавила."""
-    cleaned = str(raw_text or "").strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned)
-    return cleaned.strip()
-
-
 def filter_brand_names(value: object) -> str:
     """Удаляет бренды и аккуратно схлопывает оставшиеся пробелы."""
     text = str(value or "")
@@ -185,29 +155,21 @@ def sanitize_pin_copy(copy: object, fallback_name: str = "") -> dict:
     }
 
 
-async def generate_pin_copy(image_bytes: bytes, name: str) -> dict:
-    b64 = base64.b64encode(image_bytes).decode()
-    try:
-        msg = await client.messages.create(
-            model=MODEL,
-            max_tokens=500,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64",
-                     "media_type": "image/jpeg", "data": b64}},
-                    {"type": "text", "text": PROMPT.format(name=name or "не указано")},
-                ],
-            }],
-        )
-        raw = _clean_anthropic_json(msg.content[0].text)
-        return json.loads(raw)
-    except Exception as e:
-        logger.error(f"Anthropic/JSON fail: {e}")
-        # запасной вариант, чтобы пайплайн не падал
-        return {"title": (name or "Streetwear outfit")[:90],
-                "description": "Stylish streetwear piece. Easy to style with everyday basics for a clean, modern look.",
-                "keywords": "streetwear, y2k, old money, outfit, oversized, unisex, street style, aesthetic, fashion"}
+_used_titles: set[str] = set()
+
+
+async def generate_pin_copy(
+    image_bytes: bytes,
+    name: str,
+    material: str = "",
+) -> dict:
+    title = title_gen.generate_title(name, material, _used_titles)
+    _used_titles.add(title)
+    return {
+        "title": title,
+        "description": title_gen.generate_description(name, material),
+        "keywords": title_gen.generate_keywords(name, material),
+    }
 
 
 # ---------- Расписание ----------
@@ -270,7 +232,12 @@ def _count() -> int:
 
 
 # ---------- Главная функция: добавить товар ----------
-async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -> tuple[int, int]:
+async def add_product(
+    photo_bytes_list: list[bytes],
+    name: str,
+    category: str,
+    material: str = "",
+) -> tuple[int, int]:
     """
     photo_bytes_list — байты первых фото товара (берём первые PINS_PER_PRODUCT).
     Возвращает (добавлено_строк, всего_в_партии).
@@ -280,7 +247,7 @@ async def add_product(photo_bytes_list: list[bytes], name: str, category: str) -
 
     board = BOARD_MAP.get(category, DEFAULT_BOARD)
     copy = sanitize_pin_copy(
-        await generate_pin_copy(photo_bytes_list[0], name),
+        await generate_pin_copy(photo_bytes_list[0], name, material),
         fallback_name=name,
     )
 

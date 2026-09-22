@@ -542,7 +542,12 @@ async def _add_to_catalogs(photo_ids: list, name: str, category: str,
     # --- Pinterest (первое фото) ---
     if to_pinterest:
         try:
-            added, total = await pe.add_product(photo_bytes_list[:pe.PINS_PER_PRODUCT], name, category)
+            added, total = await pe.add_product(
+                photo_bytes_list[:pe.PINS_PER_PRODUCT],
+                name,
+                category,
+                material,
+            )
             logger.info(f"Pinterest batch: +{added} пин(а), итого {total}")
         except Exception as e:
             logger.error(f"Pinterest add_product error: {e}", exc_info=True)
