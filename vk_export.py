@@ -6,6 +6,8 @@ import logging
 from datetime import datetime
 from xml.sax.saxutils import escape as _xml_escape
 
+from price_calc import LEATHER_OUTERWEAR_TRIGGERS
+
 logger = logging.getLogger(__name__)
 
 # ============ НАСТРОЙКИ (правь тут) ============
@@ -28,26 +30,51 @@ VK_YML = "vk_batch.xml"       # готовый файл для импорта в
 
 # Категории VK (шапка YML)
 VK_CATEGORIES = [
-    (1, "Обувь"),
-    (2, "Одежда"),
-    (3, "Аксессуары"),
-    (4, "Сумки и кошельки"),
+    (30000, "Гардероб"),
+    (30005, "Old Money"),
+    (30006, "Обувь"),
+    (30007, "Аксессуары и сумки"),
+    (40076, "Штаны и джинсы"),
+    (40085, "Костюмы"),
+    (40086, "Худи и свитшоты"),
+    (40087, "Футболки и рубашки"),
+    (40088, "Шорты и трусы"),
+    (40092, "Кроссовки"),
+    (40102, "Головные уборы и шарфы"),
+    (50076, "Кожаная и замшевая верхняя одежда"),
+    (50078, "Куртки и ветровки"),
+    (50082, "Зимняя одежда"),
 ]
 
 
 # ============ КАТЕГОРИИ: бот -> VK categoryId ============
-def _category_id(bot_category: str) -> int:
-    """Маппинг категории из CATEGORY_MAP бота в VK categoryId (1-4)."""
-    c = (bot_category or "").strip().lower()
-    if c.startswith("обувь"):
-        return 1
-    if c.startswith("сумки"):
-        return 4
-    if c.startswith("головные") or c.startswith("аксессуар"):
-        return 3
-    # Костюмы, Old Money, Зима, Худи, Футболки, Куртки, Штаны, Шорты,
-    # "Только в основной канал" и всё прочее -> Одежда
-    return 2
+VK_CATEGORY_IDS = {
+    "Обувь Adidas": 40092,
+    "Обувь Nike": 40092,
+    "Обувь New Balance": 40092,
+    "Обувь Микс": 30006,
+    "Костюмы": 40085,
+    "Old Money": 30005,
+    "Зима": 50082,
+    "Худи и Свитшоты": 40086,
+    "Футболки и Рубашки": 40087,
+    "Куртки и Ветровки": 50078,
+    "Штаны и Джинсы": 40076,
+    "Шорты и Трусы": 40088,
+    "Головные уборы и Шарфы": 40102,
+    "Аксессуары": 30007,
+    "Сумки и Кошельки": 30007,
+}
+
+
+def _category_id(bot_category: str, name: str = "", material: str = "") -> int:
+    """Возвращает VK categoryId для категории и признаков верхней одежды."""
+    category = (bot_category or "").strip()
+    if category in ("Зима", "Куртки и Ветровки"):
+        text = f"{name or ''} {material or ''}".lower().replace("ё", "е")
+        if any(trigger in text for trigger in LEATHER_OUTERWEAR_TRIGGERS):
+            return 50076
+    return VK_CATEGORY_IDS.get(category, 30000)
 
 
 # ============ ОПИСАНИЕ (из данных TG) ============
@@ -185,7 +212,7 @@ async def add_offer(photo_bytes_list, name, price, category, sizes, material, im
     offer = {
         "name": str(name or "Товар").strip(),
         "price": price_int,
-        "category_id": _category_id(category),
+        "category_id": _category_id(category, name, material),
         "pictures": urls,
         "description": _build_description(sizes, material),
     }
@@ -217,7 +244,11 @@ def build_yml() -> str:
         p.append(f'      <offer id="{i}" available="true">')
         p.append(f'        <price>{o.get("price", 0)}</price>')
         p.append('        <currencyId>RUB</currencyId>')
-        p.append(f'        <categoryId>{o.get("category_id", 2)}</categoryId>')
+        category_id = o.get("category_id", 30000)
+        # Старые записи с локальными ID 1–4 не содержат исходную категорию бота.
+        if category_id not in {cid for cid, _ in VK_CATEGORIES}:
+            category_id = 30000
+        p.append(f'        <categoryId>{category_id}</categoryId>')
         pics = o.get("pictures") or ([o["picture"]] if o.get("picture") else [])
         for pic in pics[:VK_MAX_PICTURES]:
             p.append(f'        <picture>{_xml_escape(pic)}</picture>')
