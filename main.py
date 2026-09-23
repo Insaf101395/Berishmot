@@ -609,7 +609,10 @@ async def cmd_export(message: types.Message):
         )
     except Exception as e:
         logger.error(f"Export error: {e}", exc_info=True)
-        await message.answer(f"❌ Ошибка экспорта: {e}")
+        await message.answer(
+            "❌ Экспорт Pinterest недоступен: не удалось прочитать App Storage. "
+            "Проверьте, что в проекте создан и подключён бакет по умолчанию."
+        )
     finally:
         if path and os.path.basename(path).startswith("pinterest_export_"):
             os.unlink(path)
@@ -678,7 +681,10 @@ async def cmd_export_vk(message: types.Message):
         )
     except Exception as e:
         logger.error(f"export_vk error: {e}", exc_info=True)
-        await message.answer(f"❌ Ошибка экспорта VK: {e}")
+        await message.answer(
+            "❌ Экспорт VK недоступен: не удалось прочитать App Storage. "
+            "Проверьте, что в проекте создан и подключён бакет по умолчанию."
+        )
 
 @dp.message(Command("clear_vk"))
 async def cmd_clear_vk(message: types.Message):
