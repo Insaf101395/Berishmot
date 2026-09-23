@@ -1,2 +1,3 @@
 - [Autoscale local files](autoscale-local-files.md) — runtime-written files reset across Autoscale restarts and publishing; external media links need persistence.
 - [Publish health probes](publish-health-probes.md) — keep the root health route independent of App Storage so a missing bucket cannot block promotion.
+- [Telegram bot deployment](telegram-bot-deployment.md) — production polling requires an always-running VM; keep Preview polling disabled.
