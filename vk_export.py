@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 # ============ НАСТРОЙКИ (правь тут) ============
 SHOP_NAME = "Berishmot Store"
-SHOP_URL = "https://vk.com/berishmotvk"      # <shop><url>
-PRODUCT_URL = "https://vk.com/berishmotvk"   # <offer><url> — куда ведёт карточка
+MANAGER_URL = "https://vk.com/berishmotvk"
+SHOP_URL = MANAGER_URL      # <shop><url>
+PRODUCT_URL = MANAGER_URL   # <offer><url> — куда ведёт карточка
 
 # Ссылки как на скринах 1-2
 REVIEWS_URL = "https://vk.com/topic-147969195_35462100?post=7351"
@@ -53,7 +54,7 @@ VK_CATEGORIES = [
     (40102, "Головные уборы и шарфы"),
     (50076, "Кожаная и замшевая верхняя одежда"),
     (50078, "Куртки и ветровки"),
-    (50082, "Зимняя одежда"),
+    (50082, "Пуховики и зимние куртки"),
 ]
 
 
@@ -82,6 +83,8 @@ def _category_id(bot_category: str, name: str = "", material: str = "") -> int:
     category = (bot_category or "").strip()
     if category in ("Зима", "Куртки и Ветровки"):
         text = f"{name or ''} {material or ''}".lower().replace("ё", "е")
+        if "пуховик" in text:
+            return 50082
         if any(trigger in text for trigger in LEATHER_OUTERWEAR_TRIGGERS):
             return 50076
     return VK_CATEGORY_IDS.get(category, 30000)
@@ -93,6 +96,7 @@ def _build_description(sizes: str, material: str) -> str:
     Собирает описание как на скринах 1-2:
         🌿 Размеры: {sizes}
         🌿 {material}
+        Для оформления заказа пишите: {MANAGER_URL}
 
         💎 Отзывы: {REVIEWS_URL}
         💎 Гарантии: {GUARANTEES_URL}
@@ -109,6 +113,7 @@ def _build_description(sizes: str, material: str) -> str:
         lines.append(f"{EMOJI_LEAF} {m}")
 
     lines.append(MATERIALS_NOTE)
+    lines.append(f"Для оформления заказа пишите: {MANAGER_URL}")
     lines.append("")  # пустая строка-отступ перед ссылками
 
     lines.append(f"{EMOJI_GEM} Отзывы: {REVIEWS_URL}")

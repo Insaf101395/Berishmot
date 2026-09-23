@@ -91,9 +91,15 @@ class PhotoAlbumTests(IsolatedAsyncioTestCase):
             get_file.side_effect = lambda file_id: SimpleNamespace(file_path=file_id)
             pinterest.return_value = (1, 1)
             vk.return_value = (1, 1)
-            await main._add_to_catalogs(expected, "Пуховик", "Зима", to_pinterest=True, to_vk=True)
+            await main._add_to_catalogs(
+                expected, "Пуховик", "Зима", material="Полиэстер",
+                to_pinterest=True, to_vk=True,
+            )
             self.assertEqual(pinterest.call_args.args[0], [b"photo-100"])
             self.assertEqual(vk.call_args.args[0], [f"photo-{100 + i}".encode() for i in range(5)])
+            self.assertEqual(vk.call_args.args[1], main.visual_name("Пуховик"))
+            self.assertEqual(vk.call_args.args[3], "Зима")
+            self.assertEqual(vk.call_args.args[5], "Полиэстер")
 
     async def test_old_album_cannot_modify_new_post(self):
         with patch.object(main, "show_category_inline", new_callable=AsyncMock):
