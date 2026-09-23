@@ -1,16 +1,16 @@
 import os
 import json
-import base64
 import asyncio
 import logging
 import re
 import secrets
 import time
 from datetime import datetime
-from pathlib import Path
 from uuid import uuid4
 from xml.sax.saxutils import escape as _xml_escape
 
+from replit.object_storage import Client
+from replit.object_storage.errors import ObjectNotFoundError
 from price_calc import LEATHER_OUTERWEAR_TRIGGERS
 
 logger = logging.getLogger(__name__)
@@ -32,8 +32,10 @@ MATERIALS_NOTE = "Все материалы, бирки, фурнитура со
 # Файлы партии
 VK_STORE = "vk_batch.jsonl"   # накопитель offer'ов (по строке JSON на товар)
 VK_YML = "vk_batch.xml"       # готовый файл для импорта в VK (YML внутри, расширение .xml)
-VK_IMAGES = Path(__file__).resolve().parent / "vk_images"
 PUBLIC_BASE = (os.getenv("PUBLIC_URL") or "https://berishmot.replit.app").rstrip("/")
+VK_IMAGE_PREFIX = "vk_images/"
+VK_IMAGE_TIME_PREFIX = "vk_image_times/"
+_storage = Client()
 
 # Категории VK (шапка YML)
 VK_CATEGORIES = [
@@ -114,52 +116,12 @@ def _build_description(sizes: str, material: str) -> str:
     return "\n".join(lines)
 
 
-# ============ ЗАГРУЗКА ФОТО НА IMGBB ============
-async def _upload_via_pinterest(photo_bytes: bytes):
-    """Переиспользуем загрузчик из pinterest_export (тот же ключ ImgBB)."""
+# ============ ФОТО В APP STORAGE ============
+async def get_vk_image(name: str) -> bytes | None:
     try:
-        import pinterest_export as pe  # ленивый импорт -> без циклических зависимостей
-        fn = getattr(pe, "upload_to_imgbb", None)
-        if not fn:
-            return None
-        res = fn(photo_bytes)
-        if asyncio.iscoroutine(res):
-            res = await res
-        return res or None
-    except Exception as e:
-        logger.warning(f"VK: reuse pe.upload_to_imgbb failed: {e}")
+        return await asyncio.to_thread(_storage.download_as_bytes, VK_IMAGE_PREFIX + name)
+    except ObjectNotFoundError:
         return None
-
-
-async def _upload_own(photo_bytes: bytes):
-    """Запасной вариант: своя загрузка на ImgBB по ключу из окружения."""
-    key = os.getenv("IMGBB_API_KEY") or os.getenv("IMGBB_KEY") or os.getenv("IMGBB_TOKEN")
-    if not key:
-        logger.warning("VK: нет IMGBB_API_KEY в окружении для запасной загрузки")
-        return None
-    try:
-        import aiohttp  # локальный импорт: нужен только для запасной загрузки
-        b64 = base64.b64encode(photo_bytes).decode()
-        data = {"key": key, "image": b64}
-        timeout = aiohttp.ClientTimeout(total=60)
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            async with s.post("https://api.imgbb.com/1/upload", data=data) as r:
-                if r.status != 200:
-                    logger.warning(f"VK: ImgBB HTTP {r.status}")
-                    return None
-                j = await r.json()
-                return (j.get("data") or {}).get("url")
-    except Exception as e:
-        logger.warning(f"VK: own ImgBB upload failed: {e}")
-        return None
-
-
-async def upload_to_imgbb(photo_bytes: bytes):
-    """Сначала пробуем загрузчик Pinterest-модуля, потом свой запасной."""
-    url = await _upload_via_pinterest(photo_bytes)
-    if url:
-        return url
-    return await _upload_own(photo_bytes)
 
 
 # ============ НАКОПИТЕЛЬ OFFER'ОВ ============
@@ -206,17 +168,20 @@ async def add_offer(photo_bytes_list, name, price, category, sizes, material, im
     if not photo_bytes_list:
         return 0, count_vk()
 
-    VK_IMAGES.mkdir(parents=True, exist_ok=True)
     saved = []
     try:
         for photo in photo_bytes_list[:VK_MAX_PICTURES]:
             filename = f"{uuid4().hex}.jpeg"
-            (VK_IMAGES / filename).write_bytes(photo)
-            saved.append(filename)
+            image_key = VK_IMAGE_PREFIX + filename
+            await asyncio.to_thread(_storage.upload_from_bytes, image_key, photo)
+            saved.append(image_key)
+            marker = f"{VK_IMAGE_TIME_PREFIX}{int(time.time())}-{filename}"
+            await asyncio.to_thread(_storage.upload_from_bytes, marker, b"")
+            saved.append(marker)
             urls.append(f"{PUBLIC_BASE}/img/{filename}")
     except Exception:
-        for filename in saved:
-            (VK_IMAGES / filename).unlink(missing_ok=True)
+        for key in saved:
+            await asyncio.to_thread(_storage.delete, key, ignore_not_found=True)
         raise
 
     try:
@@ -239,8 +204,8 @@ async def add_offer(photo_bytes_list, name, price, category, sizes, material, im
     try:
         _append_offer(offer)
     except Exception:
-        for filename in saved:
-            (VK_IMAGES / filename).unlink(missing_ok=True)
+        for key in saved:
+            await asyncio.to_thread(_storage.delete, key, ignore_not_found=True)
         raise
     return 1, count_vk()
 
@@ -309,18 +274,20 @@ def clear_vk():
     return archived
 
 
-def cleanup_old_vk_images() -> int:
-    """Удаляет только VK-фотографии старше 24 часов после архивирования партии."""
-    if not VK_IMAGES.exists():
-        return 0
+async def cleanup_old_vk_images() -> int:
+    """Удаляет VK-фотографии, загруженные более 24 часов назад."""
     cutoff = time.time() - 24 * 60 * 60
     removed = 0
-    for path in VK_IMAGES.iterdir():
-        if path.is_file() and re.fullmatch(r"[0-9a-f]{32}\.jpeg", path.name):
-            try:
-                if path.stat().st_mtime < cutoff:
-                    path.unlink()
-                    removed += 1
-            except FileNotFoundError:
-                continue
+    markers = await asyncio.to_thread(_storage.list, prefix=VK_IMAGE_TIME_PREFIX)
+    for marker in markers:
+        match = re.fullmatch(
+            rf"{VK_IMAGE_TIME_PREFIX}(\d+)-([0-9a-f]{{32}}\.jpeg)", marker.name
+        )
+        if match and int(match.group(1)) < cutoff:
+            await asyncio.to_thread(
+                _storage.delete, VK_IMAGE_PREFIX + match.group(2),
+                ignore_not_found=True,
+            )
+            await asyncio.to_thread(_storage.delete, marker.name, ignore_not_found=True)
+            removed += 1
     return removed
