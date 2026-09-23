@@ -104,3 +104,18 @@ class PhotoAlbumTests(IsolatedAsyncioTestCase):
             await asyncio.sleep(0.06)
         self.assertEqual(self.state.current, main.PostForm.waiting_for_photos_and_text.state)
         self.assertNotIn("photos", self.state.data)
+
+    async def test_polling_retries_after_network_timeout(self):
+        with (
+            patch.object(
+                main.dp,
+                "start_polling",
+                new_callable=AsyncMock,
+                side_effect=[asyncio.TimeoutError(), None],
+            ) as polling,
+            patch.object(main.asyncio, "sleep", new_callable=AsyncMock) as sleep,
+        ):
+            await main._poll_telegram_forever()
+
+        self.assertEqual(polling.await_count, 2)
+        sleep.assert_awaited_once_with(5)

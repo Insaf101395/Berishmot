@@ -1,4 +1,5 @@
 from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
+from aiogram.exceptions import TelegramNetworkError
 from aiogram.filters import Command
 from aiohttp import web
 from aiogram.fsm.context import FSMContext
@@ -832,6 +833,23 @@ async def start_web():
     await site.start()
     logger.info(f"🌐 Веб-сервер запущен на :{port} — фид доступен по /vk_batch.xml")
 
+
+async def _poll_telegram_forever():
+    retry_delay = 5
+    while True:
+        try:
+            await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+            return
+        except (TelegramNetworkError, asyncio.TimeoutError, OSError) as exc:
+            logger.warning(
+                "Telegram polling connection lost: %s. Retrying in %s seconds.",
+                exc,
+                retry_delay,
+            )
+            await asyncio.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 60)
+
+
 # ============ ЗАПУСК ============
 async def main():
     logger.info("🚀 Berishmot Bot v2.2 запущен")
@@ -841,7 +859,7 @@ async def main():
         logger.info("Telegram polling disabled in development; web preview only")
         await asyncio.Event().wait()
         return
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    await _poll_telegram_forever()
 
 if __name__ == "__main__":
     asyncio.run(main())
