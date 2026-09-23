@@ -12,9 +12,11 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 import aiohttp
 import title_gen
+import export_batch_storage as batch_storage
 
 logger = logging.getLogger(__name__)
 
@@ -178,20 +180,18 @@ def _get_next_publish_time() -> str:
     last_dt: datetime | None = None
     counts: dict = {}   # date -> количество пинов
 
-    if os.path.exists(CSV_PATH):
-        with open(CSV_PATH, encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                raw = row.get("Publish date", "").strip()
-                if not raw:
-                    continue
-                try:
-                    dt = datetime.fromisoformat(raw)
-                    day = dt.date()
-                    counts[day] = counts.get(day, 0) + 1
-                    if last_dt is None or dt > last_dt:
-                        last_dt = dt
-                except ValueError:
-                    pass
+    for row in _rows():
+        raw = row.get("Publish date", "").strip()
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw)
+            day = dt.date()
+            counts[day] = counts.get(day, 0) + 1
+            if last_dt is None or dt > last_dt:
+                last_dt = dt
+        except ValueError:
+            pass
 
     now = datetime.now()
 
@@ -214,28 +214,39 @@ def _get_next_publish_time() -> str:
 
 
 # ---------- CSV ----------
+def _legacy_rows() -> list[dict]:
+    if not os.path.exists(CSV_PATH):
+        return []
+    with open(CSV_PATH, encoding="utf-8-sig", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _rows() -> list[dict]:
+    return batch_storage.rows("pinterest", _legacy_rows())
+
+
+def _write_csv(path: str, rows: list[dict]) -> None:
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS, quoting=csv.QUOTE_MINIMAL)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _append_rows(rows: list[dict]):
-    new_file = not os.path.exists(CSV_PATH)
-    with open(CSV_PATH, "a", newline="", encoding="utf-8-sig") as f:
-        w = csv.DictWriter(f, fieldnames=CSV_HEADERS, quoting=csv.QUOTE_MINIMAL)
-        if new_file:
-            w.writeheader()
-        for r in rows:
-            w.writerow(r)
+    batch_storage.append("pinterest", rows)
 
 
 def _count() -> int:
-    if not os.path.exists(CSV_PATH):
-        return 0
-    with open(CSV_PATH, encoding="utf-8-sig") as f:
-        return max(0, sum(1 for _ in f) - 1)   # минус строка заголовка
+    return len(_rows())
 
 
-_pin_link_counter = _count()
+_pin_link_counter = None
 
 
 def _next_pin_link() -> str:
     global _pin_link_counter
+    if _pin_link_counter is None:
+        _pin_link_counter = _count()
     _pin_link_counter += 1
     return f"{TG_LINK}?pin={_pin_link_counter}"
 
@@ -289,7 +300,12 @@ async def add_product(
 
 # ---------- Команды бота ----------
 def get_csv_path() -> str | None:
-    return CSV_PATH if os.path.exists(CSV_PATH) else None
+    rows = _rows()
+    if not rows:
+        return None
+    path = f"pinterest_export_{uuid4().hex}.csv"
+    _write_csv(path, rows)
+    return path
 
 
 def count_batch() -> int:
@@ -297,10 +313,12 @@ def count_batch() -> int:
 
 
 def clear_batch() -> str | None:
-    """Архивирует текущую партию (переименовывает с датой), начинает пустую."""
-    if not os.path.exists(CSV_PATH):
+    """Архивирует текущую партию и переключает все экземпляры на пустую."""
+    rows = _rows()
+    if not rows:
         return None
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    archived = f"pinterest_batch_{stamp}.csv"
-    os.rename(CSV_PATH, archived)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archived = f"pinterest_batch_{stamp}_{uuid4().hex[:8]}.csv"
+    _write_csv(archived, rows)
+    batch_storage.archive_and_clear("pinterest", archived, rows)
     return archived

@@ -6,6 +6,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InputMediaPhoto, FSInputFile, TelegramObject
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from replit.object_storage.errors import DefaultBucketError
 import asyncio
 import os
 import re
@@ -591,8 +592,9 @@ async def cmd_pinterest_count(message: types.Message):
 
 @dp.message(Command("export"))
 async def cmd_export(message: types.Message):
+    path = None
     try:
-        path = pe.get_csv_path()
+        path = await asyncio.to_thread(pe.get_csv_path)
         if not path:
             await message.answer("📭 Партия пустая — публикуй товары, они добавятся автоматически.")
             return
@@ -600,7 +602,7 @@ async def cmd_export(message: types.Message):
         if not os.path.exists(abs_path):
             await message.answer(f"⚠️ Файл не найден: {abs_path}")
             return
-        count = pe.count_batch()
+        count = await asyncio.to_thread(pe.count_batch)
         doc = FSInputFile(abs_path, filename="pinterest_batch.csv")
         await message.answer_document(
             doc,
@@ -609,10 +611,18 @@ async def cmd_export(message: types.Message):
     except Exception as e:
         logger.error(f"Export error: {e}", exc_info=True)
         await message.answer(f"❌ Ошибка экспорта: {e}")
+    finally:
+        if path and os.path.basename(path).startswith("pinterest_export_"):
+            os.unlink(path)
 
 @dp.message(Command("clear_batch"))
 async def cmd_clear_batch(message: types.Message):
-    archived = pe.clear_batch()
+    try:
+        archived = await asyncio.to_thread(pe.clear_batch)
+    except Exception:
+        logger.exception("Pinterest batch archive failed")
+        await message.answer("❌ Не удалось очистить партию: проверьте App Storage и повторите команду.")
+        return
     if not archived:
         await message.answer("📭 Нечего архивировать — партия и так пустая.")
         return
@@ -653,7 +663,7 @@ async def cmd_count_vk(message: types.Message):
 @dp.message(Command("export_vk"))
 async def cmd_export_vk(message: types.Message):
     try:
-        path = vke.get_vk_path()
+        path = await asyncio.to_thread(vke.get_vk_path)
         if not path:
             await message.answer("📭 VK партия пустая — публикуй товары, они добавятся автоматически.")
             return
@@ -661,7 +671,7 @@ async def cmd_export_vk(message: types.Message):
         if not os.path.exists(abs_path):
             await message.answer(f"⚠️ Файл не найден: {abs_path}")
             return
-        count = vke.count_vk()
+        count = await asyncio.to_thread(vke.count_vk)
         doc = FSInputFile(abs_path, filename="vk_batch.xml")
         await message.answer_document(
             doc,
@@ -673,11 +683,25 @@ async def cmd_export_vk(message: types.Message):
 
 @dp.message(Command("clear_vk"))
 async def cmd_clear_vk(message: types.Message):
-    archived = vke.clear_vk()
+    try:
+        archived = await asyncio.to_thread(vke.clear_vk)
+    except Exception:
+        logger.exception("VK batch archive failed")
+        await message.answer("❌ Не удалось очистить VK-партию: проверьте App Storage и повторите команду.")
+        return
     if not archived:
         await message.answer("📭 Нечего архивировать — VK партия и так пустая.")
         return
-    await vke.cleanup_old_vk_images()
+    try:
+        await vke.cleanup_old_vk_images()
+    except Exception:
+        logger.exception("VK image cleanup failed after archiving")
+        await message.answer(
+            f"✅ VK партия архивирована как <code>{archived}</code>. "
+            "⚠️ Очистка старых фото не удалась, повторите её при следующем /clear_vk.",
+            parse_mode="HTML",
+        )
+        return
     await message.answer(f"✅ VK партия архивирована как <code>{archived}</code>. Новая партия начата.", parse_mode="HTML")
 
 # ============ ВЕБ-СЕРВЕР (раздаёт XML по ссылке для VK) ============
@@ -694,7 +718,7 @@ async def _serve_vk_image(request):
 async def _serve_vk_yml(request):
     """VK читает этот адрес по ссылке. Всегда отдаём свежий XML (UTF-8 с BOM, как блокнот)."""
     try:
-        yml = vke.build_yml()
+        yml = await asyncio.to_thread(vke.build_yml)
     except Exception as e:
         logger.error(f"serve vk yml error: {e}", exc_info=True)
         return web.Response(text="internal error", status=500)
@@ -702,7 +726,14 @@ async def _serve_vk_yml(request):
     return web.Response(body=body, content_type="application/xml", charset="utf-8")
 
 async def _index(request):
-    n = vke.count_vk()
+    try:
+        n = await asyncio.to_thread(vke.count_vk)
+    except DefaultBucketError:
+        return web.Response(
+            text="App Storage default bucket is not configured.",
+            status=503,
+            content_type="text/plain",
+        )
     return web.Response(
         text=f"Berishmot bot alive. VK offers: {n}. Feed: /vk_batch.xml",
         content_type="text/plain", charset="utf-8"
@@ -726,6 +757,10 @@ async def main():
     logger.info("🚀 Berishmot Bot v2.2 запущен")
     await start_web()
     asyncio.create_task(_queue_worker())
+    if os.getenv("DISABLE_BOT_POLLING") == "1":
+        logger.info("Telegram polling disabled in development; web preview only")
+        await asyncio.Event().wait()
+        return
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 if __name__ == "__main__":

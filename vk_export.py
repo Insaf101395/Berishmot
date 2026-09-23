@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape as _xml_escape
 
 from replit.object_storage import Client
 from replit.object_storage.errors import ObjectNotFoundError
+import export_batch_storage as batch_storage
 from price_calc import LEATHER_OUTERWEAR_TRIGGERS
 
 logger = logging.getLogger(__name__)
@@ -126,11 +127,10 @@ async def get_vk_image(name: str) -> bytes | None:
 
 # ============ НАКОПИТЕЛЬ OFFER'ОВ ============
 def _append_offer(offer: dict):
-    with open(VK_STORE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(offer, ensure_ascii=False) + "\n")
+    batch_storage.append("vk", [offer])
 
 
-def _read_offers() -> list:
+def _read_legacy_offers() -> list:
     if not os.path.exists(VK_STORE):
         return []
     out = []
@@ -144,6 +144,10 @@ def _read_offers() -> list:
             except json.JSONDecodeError:
                 logger.warning("VK: битая строка в vk_batch.jsonl, пропущена")
     return out
+
+
+def _read_offers() -> list:
+    return batch_storage.rows("vk", _read_legacy_offers())
 
 
 def count_vk() -> int:
@@ -266,11 +270,15 @@ def get_vk_path():
 
 def clear_vk():
     """Архивирует текущую партию. Возвращает имя архива или None если пусто."""
-    if not os.path.exists(VK_STORE) or not _read_offers():
+    offers = _read_offers()
+    if not offers:
         return None
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    archived = f"vk_batch_{stamp}.jsonl"
-    os.rename(VK_STORE, archived)
+    archived = f"vk_batch_{stamp}_{uuid4().hex[:8]}.jsonl"
+    with open(archived, "w", encoding="utf-8") as f:
+        for offer in offers:
+            f.write(json.dumps(offer, ensure_ascii=False) + "\n")
+    batch_storage.archive_and_clear("vk", archived, offers)
     return archived
 
 

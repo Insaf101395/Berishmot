@@ -13,14 +13,28 @@ localPort = 8080
 externalPort = 80
 
 [workflows]
+runButton = "Project"
 
 [[workflows.workflow]]
 name = "python3 app.py"
 mode = "sequential"
-author = 46156711
+author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
+args = "DISABLE_BOT_POLLING=1 python3 app.py"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
 args = "python3 app.py"
 
 [agent]
