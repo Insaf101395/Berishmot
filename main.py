@@ -594,6 +594,17 @@ async def cmd_export(message: types.Message):
     path = None
     try:
         path = await asyncio.to_thread(pe.get_csv_path)
+        count = await asyncio.to_thread(pe.count_batch) if path else 0
+    except Exception:
+        logger.exception("Pinterest export storage error")
+        if path and os.path.basename(path).startswith("pinterest_export_"):
+            os.unlink(path)
+        await message.answer(
+            "❌ Экспорт Pinterest недоступен: не удалось прочитать App Storage. "
+            "Проверьте, что в проекте создан и подключён бакет по умолчанию."
+        )
+        return
+    try:
         if not path:
             await message.answer("📭 Партия пустая — публикуй товары, они добавятся автоматически.")
             return
@@ -601,18 +612,17 @@ async def cmd_export(message: types.Message):
         if not os.path.exists(abs_path):
             await message.answer(f"⚠️ Файл не найден: {abs_path}")
             return
-        count = await asyncio.to_thread(pe.count_batch)
         doc = FSInputFile(abs_path, filename="pinterest_batch.csv")
         await message.answer_document(
             doc,
             caption=f"📋 Pinterest CSV — {count} пин(а)\n\nЗагрузи в Pinterest: Настройки → Импорт контента"
         )
-    except Exception as e:
-        logger.error(f"Export error: {e}", exc_info=True)
-        await message.answer(
-            "❌ Экспорт Pinterest недоступен: не удалось прочитать App Storage. "
-            "Проверьте, что в проекте создан и подключён бакет по умолчанию."
-        )
+    except Exception:
+        logger.exception("Pinterest export Telegram send error")
+        try:
+            await message.answer("❌ Не удалось отправить экспорт Pinterest в Telegram. Повторите попытку.")
+        except Exception:
+            logger.exception("Failed to report Pinterest export send error")
     finally:
         if path and os.path.basename(path).startswith("pinterest_export_"):
             os.unlink(path)
@@ -666,6 +676,15 @@ async def cmd_count_vk(message: types.Message):
 async def cmd_export_vk(message: types.Message):
     try:
         path = await asyncio.to_thread(vke.get_vk_path)
+        count = await asyncio.to_thread(vke.count_vk) if path else 0
+    except Exception:
+        logger.exception("VK export storage error")
+        await message.answer(
+            "❌ Экспорт VK недоступен: не удалось прочитать App Storage. "
+            "Проверьте, что в проекте создан и подключён бакет по умолчанию."
+        )
+        return
+    try:
         if not path:
             await message.answer("📭 VK партия пустая — публикуй товары, они добавятся автоматически.")
             return
@@ -673,18 +692,17 @@ async def cmd_export_vk(message: types.Message):
         if not os.path.exists(abs_path):
             await message.answer(f"⚠️ Файл не найден: {abs_path}")
             return
-        count = await asyncio.to_thread(vke.count_vk)
         doc = FSInputFile(abs_path, filename="vk_batch.xml")
         await message.answer_document(
             doc,
             caption=f"🟦 VK файл — {count} offer(ов)\n\nГрузи как есть: Товары → Добавить → Из файла"
         )
-    except Exception as e:
-        logger.error(f"export_vk error: {e}", exc_info=True)
-        await message.answer(
-            "❌ Экспорт VK недоступен: не удалось прочитать App Storage. "
-            "Проверьте, что в проекте создан и подключён бакет по умолчанию."
-        )
+    except Exception:
+        logger.exception("VK export Telegram send error")
+        try:
+            await message.answer("❌ Не удалось отправить экспорт VK в Telegram. Повторите попытку.")
+        except Exception:
+            logger.exception("Failed to report VK export send error")
 
 @dp.message(Command("clear_vk"))
 async def cmd_clear_vk(message: types.Message):
