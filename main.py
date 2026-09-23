@@ -6,7 +6,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InputMediaPhoto, FSInputFile, TelegramObject
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from replit.object_storage.errors import DefaultBucketError
 import asyncio
 import os
 import re
@@ -726,16 +725,8 @@ async def _serve_vk_yml(request):
     return web.Response(body=body, content_type="application/xml", charset="utf-8")
 
 async def _index(request):
-    try:
-        n = await asyncio.to_thread(vke.count_vk)
-    except DefaultBucketError:
-        return web.Response(
-            text="App Storage default bucket is not configured.",
-            status=503,
-            content_type="text/plain",
-        )
     return web.Response(
-        text=f"Berishmot bot alive. VK offers: {n}. Feed: /vk_batch.xml",
+        text="Berishmot bot alive. Feed: /vk_batch.xml",
         content_type="text/plain", charset="utf-8"
     )
 
