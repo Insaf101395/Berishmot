@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from collections import deque
 from html import escape as html_escape
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 import pinterest_export as pe
 import vk_export as vke
@@ -53,6 +54,9 @@ MOSCOW_GROUP = "@berishmotmoscow"  # группа московского скл�
 
 MAX_PHOTOS = 9        # бот принимает до 9 фото
 VK_PHOTOS = 5         # в VK идут первые 5
+ALBUM_SETTLE_SECONDS = 2.0
+_pending_albums: dict[tuple, dict] = {}
+_photo_state_locks: dict[tuple[int, int], asyncio.Lock] = {}
 
 CATEGORY_MAP = {
     "Обувь Adidas": ("Обувь Adidas", "@shoespremium1"),
@@ -233,6 +237,7 @@ async def cmd_kurs(message: types.Message):
 async def cmd_post(message: types.Message, state: FSMContext):
     await state.clear()
     await state.set_state(PostForm.waiting_for_photos_and_text)
+    await state.update_data(post_session=uuid4().hex)
     await message.answer(
         f"📸 Пришли альбом (до {MAX_PHOTOS} фото)\n\n"
         "В подписи к первому фото:\n"
@@ -245,16 +250,76 @@ async def cmd_post(message: types.Message, state: FSMContext):
 
 @dp.message(PostForm.waiting_for_photos_and_text, F.photo)
 async def process_photos_with_caption(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    photos = data.get("photos", [])
+    session = (await state.get_data()).get("post_session")
+    if message.media_group_id:
+        key = (message.chat.id, message.from_user.id, session, message.media_group_id)
+        batch = _pending_albums.get(key)
+        if batch is None:
+            batch = {"messages": {}, "updated_at": asyncio.get_running_loop().time()}
+            _pending_albums[key] = batch
+            asyncio.create_task(_flush_photo_album(key, state))
+        batch["messages"][message.message_id] = message
+        batch["updated_at"] = asyncio.get_running_loop().time()
+        return
+    await _process_photo_messages([message], state, session)
+
+
+async def _flush_photo_album(key: tuple, state: FSMContext):
+    messages = []
+    try:
+        while True:
+            batch = _pending_albums[key]
+            remaining = batch["updated_at"] + ALBUM_SETTLE_SECONDS - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                messages = sorted(batch["messages"].values(), key=lambda msg: msg.message_id)
+                del _pending_albums[key]
+                await _process_photo_messages(messages, state, key[2])
+                return
+            await asyncio.sleep(remaining)
+    except Exception:
+        logger.exception("Could not process photo album")
+        batch = _pending_albums.pop(key, None)
+        if batch and not messages:
+            messages = list(batch["messages"].values())
+        if messages:
+            try:
+                await messages[0].answer(
+                    "❌ Не удалось собрать альбом. Начни заново командой /post."
+                )
+            except Exception:
+                logger.exception("Could not notify user about photo album error")
+
+
+async def _process_photo_messages(messages: list[types.Message], state: FSMContext, session: str):
+    lock_key = (messages[0].chat.id, messages[0].from_user.id)
+    lock = _photo_state_locks.setdefault(lock_key, asyncio.Lock())
+    async with lock:
+        if await state.get_state() != PostForm.waiting_for_photos_and_text.state:
+            return
+        data = await state.get_data()
+        if data.get("post_session") != session:
+            return
+        await _save_photo_messages(messages, state, data)
+
+
+async def _save_photo_messages(messages: list[types.Message], state: FSMContext, data: dict):
+    # Telegram album updates can be handled out of order; message_id reflects their order.
+    message = next((item for item in messages if item.caption), messages[0])
+    entries = {item["message_id"]: item["file_id"] for item in data.get("photo_entries", [])}
+    for item in messages:
+        entries[item.message_id] = item.photo[-1].file_id
+    ordered = sorted(entries.items())
+    seen = set()
+    photo_entries = []
+    for message_id, file_id in ordered:
+        if file_id not in seen and len(photo_entries) < MAX_PHOTOS:
+            photo_entries.append({"message_id": message_id, "file_id": file_id})
+            seen.add(file_id)
+    photos = [item["file_id"] for item in photo_entries]
+    await state.update_data(photo_entries=photo_entries, photos=photos)
     processed = data.get("caption_processed", False)
     reminded = data.get("caption_reminded", False)
     completion_notified = data.get("photos_completion_notified", False)
-
-    photo_id = message.photo[-1].file_id
-    if photo_id not in photos and len(photos) < MAX_PHOTOS:
-        photos.append(photo_id)
-        await state.update_data(photos=photos)
 
     if not processed and message.caption:
         name, price, material, price_mode = parse_caption(message.caption)
