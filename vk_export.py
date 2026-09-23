@@ -3,7 +3,12 @@ import json
 import base64
 import asyncio
 import logging
+import re
+import secrets
+import time
 from datetime import datetime
+from pathlib import Path
+from uuid import uuid4
 from xml.sax.saxutils import escape as _xml_escape
 
 from price_calc import LEATHER_OUTERWEAR_TRIGGERS
@@ -27,6 +32,8 @@ MATERIALS_NOTE = "Все материалы, бирки, фурнитура со
 # Файлы партии
 VK_STORE = "vk_batch.jsonl"   # накопитель offer'ов (по строке JSON на товар)
 VK_YML = "vk_batch.xml"       # готовый файл для импорта в VK (YML внутри, расширение .xml)
+VK_IMAGES = Path(__file__).resolve().parent / "vk_images"
+PUBLIC_BASE = (os.getenv("PUBLIC_URL") or "https://berishmot.replit.app").rstrip("/")
 
 # Категории VK (шапка YML)
 VK_CATEGORIES = [
@@ -184,39 +191,57 @@ def count_vk() -> int:
 VK_MAX_PICTURES = 5  # VK берёт до 5 фото на товар
 
 
+def _new_offer_id() -> str:
+    return f"bm{datetime.now():%Y%m%d%H%M%S}-{secrets.randbelow(1000):03d}"
+
+
 # ============ ДОБАВЛЕНИЕ ТОВАРА ============
 async def add_offer(photo_bytes_list, name, price, category, sizes, material, image_urls=None):
     """
     Добавляет offer в партию. Возвращает (added, total).
     В VK идут первые 5 фото -> несколько <picture>. Порядок сохраняется, первое фото первым.
-    added=0, если ни одна картинка не загрузилась (offer без <picture> VK пропустит).
-    image_urls можно передать готовым списком, чтобы не грузить фото повторно.
+    added=0, если фотографий нет. image_urls оставлен для совместимости вызовов.
     """
     urls = []
-    if image_urls:
-        urls = [u for u in image_urls if u][:VK_MAX_PICTURES]
-    elif photo_bytes_list:
-        for b in photo_bytes_list[:VK_MAX_PICTURES]:
-            u = await upload_to_imgbb(b)
-            if u:
-                urls.append(u)
-
-    if not urls:
+    if not photo_bytes_list:
         return 0, count_vk()
+
+    VK_IMAGES.mkdir(parents=True, exist_ok=True)
+    saved = []
+    try:
+        for photo in photo_bytes_list[:VK_MAX_PICTURES]:
+            filename = f"{uuid4().hex}.jpeg"
+            (VK_IMAGES / filename).write_bytes(photo)
+            saved.append(filename)
+            urls.append(f"{PUBLIC_BASE}/img/{filename}")
+    except Exception:
+        for filename in saved:
+            (VK_IMAGES / filename).unlink(missing_ok=True)
+        raise
 
     try:
         price_int = int(price) if price else 0
     except (TypeError, ValueError):
         price_int = 0
 
+    existing_ids = {str(o.get("offer_id")) for o in _read_offers()}
+    offer_id = _new_offer_id()
+    while offer_id in existing_ids:
+        offer_id = _new_offer_id()
     offer = {
+        "offer_id": offer_id,
         "name": str(name or "Товар").strip(),
         "price": price_int,
         "category_id": _category_id(category, name, material),
         "pictures": urls,
         "description": _build_description(sizes, material),
     }
-    _append_offer(offer)
+    try:
+        _append_offer(offer)
+    except Exception:
+        for filename in saved:
+            (VK_IMAGES / filename).unlink(missing_ok=True)
+        raise
     return 1, count_vk()
 
 
@@ -240,8 +265,9 @@ def build_yml() -> str:
         p.append(f'      <category id="{cid}">{_xml_escape(cname)}</category>')
     p.append('    </categories>')
     p.append('    <offers>')
-    for i, o in enumerate(offers, start=1):
-        p.append(f'      <offer id="{i}" available="true">')
+    for o in offers:
+        offer_id = o.get("offer_id") or _new_offer_id()
+        p.append(f'      <offer id="{_xml_escape(str(offer_id))}" available="true">')
         p.append(f'        <price>{o.get("price", 0)}</price>')
         p.append('        <currencyId>RUB</currencyId>')
         category_id = o.get("category_id", 30000)
@@ -249,6 +275,7 @@ def build_yml() -> str:
         if category_id not in {cid for cid, _ in VK_CATEGORIES}:
             category_id = 30000
         p.append(f'        <categoryId>{category_id}</categoryId>')
+        p.append('        <quantity>10</quantity>')
         pics = o.get("pictures") or ([o["picture"]] if o.get("picture") else [])
         for pic in pics[:VK_MAX_PICTURES]:
             p.append(f'        <picture>{_xml_escape(pic)}</picture>')
@@ -280,3 +307,20 @@ def clear_vk():
     archived = f"vk_batch_{stamp}.jsonl"
     os.rename(VK_STORE, archived)
     return archived
+
+
+def cleanup_old_vk_images() -> int:
+    """Удаляет только VK-фотографии старше 24 часов после архивирования партии."""
+    if not VK_IMAGES.exists():
+        return 0
+    cutoff = time.time() - 24 * 60 * 60
+    removed = 0
+    for path in VK_IMAGES.iterdir():
+        if path.is_file() and re.fullmatch(r"[0-9a-f]{32}\.jpeg", path.name):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except FileNotFoundError:
+                continue
+    return removed

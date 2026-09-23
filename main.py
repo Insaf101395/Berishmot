@@ -677,9 +677,20 @@ async def cmd_clear_vk(message: types.Message):
     if not archived:
         await message.answer("📭 Нечего архивировать — VK партия и так пустая.")
         return
+    vke.cleanup_old_vk_images()
     await message.answer(f"✅ VK партия архивирована как <code>{archived}</code>. Новая партия начата.", parse_mode="HTML")
 
 # ============ ВЕБ-СЕРВЕР (раздаёт XML по ссылке для VK) ============
+async def _serve_vk_image(request):
+    name = request.match_info["name"]
+    if not re.fullmatch(r"[0-9a-fA-F]{32}\.jpeg", name):
+        raise web.HTTPNotFound()
+    path = vke.VK_IMAGES / name
+    if not path.is_file():
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={"Content-Type": "image/jpeg"})
+
+
 async def _serve_vk_yml(request):
     """VK читает этот адрес по ссылке. Всегда отдаём свежий XML (UTF-8 с BOM, как блокнот)."""
     try:
@@ -702,6 +713,7 @@ async def start_web():
     app.router.add_get("/", _index)
     app.router.add_get("/vk_batch.xml", _serve_vk_yml)
     app.router.add_get("/vk_batch.yml", _serve_vk_yml)
+    app.router.add_get("/img/{name}", _serve_vk_image)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", "8080"))

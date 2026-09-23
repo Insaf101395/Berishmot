@@ -1,0 +1,1 @@
+- [Autoscale local files](autoscale-local-files.md) — runtime-written files reset across Autoscale restarts and publishing; external media links need persistence.
