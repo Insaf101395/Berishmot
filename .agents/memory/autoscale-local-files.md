@@ -5,6 +5,6 @@ description: Published Autoscale instances do not retain runtime-written files a
 
 Files written to an Autoscale deployment's local filesystem are ephemeral. Do not promise that runtime-generated catalog media or feeds will remain accessible after scale-to-zero, restart, or republishing.
 
-**Why:** Replit's deployment documentation states that Autoscale files reset across these events; external catalog consumers need stable URLs over time.
+**Why:** Replit's deployment documentation states that Autoscale files reset across these events; external catalog consumers need stable URLs over time. The user confirmed that a photo link from a live VK export opens correctly after storing the image in App Storage.
 
-**How to apply:** When implementing file-backed media for external imports, confirm the deployment target and use persistent storage for a durable production solution. A requested local-file implementation can be tested locally, but disclose the production limitation before publishing.
+**How to apply:** When implementing file-backed media for external imports, confirm the deployment target and use persistent storage for a durable production solution. Validate the public image URL itself, not just that the storage object exists. A requested local-file implementation can be tested locally, but disclose the production limitation before publishing.
