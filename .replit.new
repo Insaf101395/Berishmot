@@ -1,0 +1,44 @@
+modules = ["python-3.11"]
+[nix]
+channel = "stable-24_05"
+
+run = "python3 app.py"
+
+[deployment]
+run = ["python3", "app.py"]
+deploymentTarget = "vm"
+
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "python3 app.py"
+mode = "sequential"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "DISABLE_BOT_POLLING=1 python3 app.py"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "python3 app.py"
+
+[agent]
+expertMode = true
+
+[objectStorage]
+defaultBucketID = "replit-objstore-1eaee47f-1b93-4bbc-9ca0-7a1f83d3a618"
