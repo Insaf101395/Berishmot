@@ -11,6 +11,7 @@ import base64
 import asyncio
 import logging
 import re
+import secrets
 from datetime import datetime, timedelta
 from uuid import uuid4
 
@@ -240,15 +241,18 @@ def _count() -> int:
     return len(_rows())
 
 
-_pin_link_counter = None
+_generated_pin_links: set[str] = set()
 
 
 def _next_pin_link() -> str:
-    global _pin_link_counter
-    if _pin_link_counter is None:
-        _pin_link_counter = _count()
-    _pin_link_counter += 1
-    return f"{TG_LINK}?pin={_pin_link_counter}"
+    existing_links = {row.get("Link") for row in _rows()}
+    for _ in range(1000):
+        pin_id = f"{datetime.now():%Y%m%d%H%M%S}-{secrets.randbelow(1000):03d}"
+        link = f"{TG_LINK}?pin={pin_id}"
+        if link not in existing_links and link not in _generated_pin_links:
+            _generated_pin_links.add(link)
+            return link
+    raise RuntimeError("Не удалось создать уникальную ссылку для Pinterest")
 
 
 def normalize_media_url(url: str) -> str:
