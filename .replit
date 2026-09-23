@@ -6,7 +6,7 @@ run = "python3 app.py"
 
 [deployment]
 run = ["python3", "app.py"]
-deploymentTarget = "cloudrun"
+deploymentTarget = "vm"
 
 [[ports]]
 localPort = 8080
