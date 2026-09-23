@@ -39,3 +39,6 @@ args = "python3 app.py"
 
 [agent]
 expertMode = true
+
+[objectStorage]
+defaultBucketID = "replit-objstore-1eaee47f-1b93-4bbc-9ca0-7a1f83d3a618"
