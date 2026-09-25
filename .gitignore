@@ -5,4 +5,6 @@ server/public
 vite.config.ts.*
 *.tar.gz
 __pycache__/
-*.pyc
+*.pyc.env
+storage_data/
+*.session

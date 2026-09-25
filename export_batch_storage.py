@@ -9,8 +9,7 @@ import json
 import time
 from uuid import uuid4
 
-from replit.object_storage import Client
-from replit.object_storage.errors import ObjectNotFoundError
+from local_object_storage import Client, ObjectNotFoundError
 
 _storage = Client()
 _PREFIX = "export_batches/"

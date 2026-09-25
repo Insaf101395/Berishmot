@@ -9,8 +9,7 @@ from datetime import datetime
 from uuid import uuid4
 from xml.sax.saxutils import escape as _xml_escape
 
-from replit.object_storage import Client
-from replit.object_storage.errors import ObjectNotFoundError
+from local_object_storage import Client, ObjectNotFoundError
 import export_batch_storage as batch_storage
 from price_calc import LEATHER_OUTERWEAR_TRIGGERS
 
