@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Berishmot — управление каталогом</title>
+<style>
+  :root{
+    --bg:#0e0f13;--panel:#171821;--panel2:#1e2029;--line:#2a2c38;
+    --text:#f2f3f7;--muted:#9a9cae;--accent:#E8114B;--ok:#39c26b;--warn:#e0a92e;
+    --ff:'Manrope',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--ff);font-size:14px}
+  a{color:inherit}
+  button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit}
+  input,select{font-family:inherit;font-size:14px}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px}
+  header.top{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10}
+  header.top .logo{font-weight:800;letter-spacing:1px}
+  header.top .sp{flex:1}
+  .btn{padding:9px 14px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);font-weight:600}
+  .btn:hover{border-color:var(--muted)}
+  .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.pri:hover{filter:brightness(1.08)}
+  .btn.danger{background:#3a1220;border-color:#5a1a2e;color:#ff6b8a}
+  .btn.sm{padding:6px 10px;font-size:12px}
+
+  /* login */
+  #login{max-width:360px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:26px}
+  #login h1{font-size:18px;margin:0 0 16px}
+  #login input{width:100%;padding:12px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--text);margin-bottom:12px}
+  #login .err{color:var(--accent);font-size:13px;min-height:18px}
+
+  /* tabs + filters */
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 14px}
+  .tab{padding:8px 14px;border-radius:20px;background:var(--panel);border:1px solid var(--line);font-weight:600;color:var(--muted)}
+  .tab.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+  .filters input,.filters select{padding:9px 12px;border-radius:8px;background:var(--panel);border:1px solid var(--line);color:var(--text)}
+  .filters input[type=search]{flex:1;min-width:180px}
+
+  /* table */
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  tr:hover td{background:var(--panel)}
+  td.thumb img{width:48px;height:64px;object-fit:cover;border-radius:6px;background:var(--panel2)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}
+  .pill.active{background:#12331f;color:var(--ok)}
+  .pill.hidden{background:#2a2c38;color:var(--muted)}
+  .pill.archived{background:#3a1220;color:#ff6b8a}
+  .price{font-weight:700}
+  .old{color:var(--muted);text-decoration:line-through;font-size:12px;margin-left:6px}
+  .idc{color:var(--muted);font-size:12px}
+  .rowedit{color:var(--muted);font-size:12px;border-bottom:1px dotted var(--muted)}
+
+  /* bulk bar */
+  #bulkbar{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:20;display:none;
+    gap:8px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:10px 14px;box-shadow:0 10px 40px rgba(0,0,0,.5);flex-wrap:wrap;max-width:94vw}
+  #bulkbar.show{display:flex}
+  #bulkbar .cnt{font-weight:700;margin-right:4px}
+
+  /* modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:30;padding:16px}
+  .modal.show{display:flex}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;width:min(560px,96vw);max-height:90vh;overflow:auto}
+  .card h2{margin:0 0 14px;font-size:18px}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  .field input,.field select,.field textarea{width:100%;padding:10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);color:var(--text)}
+  .field textarea{min-height:70px;resize:vertical}
+  .row2{display:flex;gap:10px}.row2>*{flex:1}
+  .modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+
+  .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ok);color:#04210f;
+    padding:11px 18px;border-radius:8px;font-weight:700;z-index:40;display:none}
+  .toast.show{display:block}
+  .toast.err{background:var(--accent);color:#fff}
+  .muted{color:var(--muted)}
+  details.audit{margin-top:18px}
+  details.audit pre{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto;font-size:12px;color:var(--muted)}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<!-- ЛОГИН -->
+<div id="login">
+  <h1>Управление каталогом</h1>
+  <input id="pw" type="password" placeholder="Пароль администратора" autocomplete="current-password">
+  <button class="btn pri" style="width:100%" onclick="login()">Войти</button>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<!-- ПАНЕЛЬ -->
+<div id="app" style="display:none">
+  <header class="top">
+    <span class="logo">BERISH<span style="color:var(--accent)">MOT</span> · каталог</span>
+    <span class="sp"></span>
+    <button class="btn sm" onclick="rollback()" title="Отменить последнее изменение">↶ Откат</button>
+    <button class="btn pri sm" onclick="openEdit()">+ Товар</button>
+    <button class="btn sm" onclick="logout()">Выйти</button>
+  </header>
+
+  <div class="wrap">
+    <div class="tabs" id="tabs"></div>
+    <div class="filters">
+      <input type="search" id="q" placeholder="Поиск: название, артикул…" oninput="debouncedLoad()">
+      <select id="cat" onchange="load()"><option value="">Все категории</option></select>
+      <button class="btn" onclick="load()">Обновить</button>
+    </div>
+
+    <table>
+      <thead><tr>
+        <th style="width:34px"><input type="checkbox" id="all" onclick="toggleAll(this)"></th>
+        <th style="width:60px">Фото</th>
+        <th>Товар</th>
+        <th style="width:130px">Категория</th>
+        <th style="width:120px">Цена</th>
+        <th style="width:110px">Наличие</th>
+        <th style="width:90px">Статус</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">Ничего не найдено.</div>
+
+    <details class="audit"><summary class="muted">Журнал изменений</summary><pre id="audit"></pre></details>
+  </div>
+</div>
+
+<!-- ПАНЕЛЬ МАССОВЫХ ДЕЙСТВИЙ -->
+<div id="bulkbar">
+  <span class="cnt" id="selcnt">0</span> выбрано:
+  <button class="btn sm danger" onclick="bulk('archive')">🗑 В архив</button>
+  <button class="btn sm" onclick="bulk('hide')">Скрыть</button>
+  <button class="btn sm" onclick="bulk('show')">Показать</button>
+  <button class="btn sm" onclick="bulk('restore')">Восстановить</button>
+  <button class="btn sm" onclick="askCategory()">Категория…</button>
+  <button class="btn sm" onclick="askPrice()">Цена ±%…</button>
+  <button class="btn sm danger" onclick="bulk('purge')" id="purgeBtn" style="display:none">Удалить навсегда</button>
+  <button class="btn sm" onclick="clearSel()">Снять</button>
+</div>
+
+<!-- МОДАЛКА ТОВАРА -->
+<div class="modal" id="editModal">
+  <div class="card">
+    <h2 id="editTitle">Товар</h2>
+    <input type="hidden" id="f_id">
+    <div class="field"><label>Название</label><input id="f_title"></div>
+    <div class="row2">
+      <div class="field"><label>Категория</label><input id="f_category" list="catlist"></div>
+      <div class="field"><label>Наличие (шт, пусто = «в наличии»)</label><input id="f_stock" type="number"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Цена ₽</label><input id="f_price" type="number"></div>
+      <div class="field"><label>Старая цена ₽ (необяз.)</label><input id="f_oldPrice" type="number"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Бейдж (напр. -22% / NEW)</label><input id="f_badge"></div>
+      <div class="field"><label>Размеры (через запятую)</label><input id="f_sizes" placeholder="S, M, L, XL"></div>
+    </div>
+    <div class="field"><label>Фото (URL через запятую)</label><input id="f_images" placeholder="https://…jpg, https://…jpg"></div>
+    <div class="field"><label>Описание</label><textarea id="f_description"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('editModal')">Отмена</button>
+      <button class="btn pri" onclick="saveProduct()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="catlist"></datalist>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+let STATUS='active', SEL=new Set(), CATS=[];
+const $=s=>document.querySelector(s);
+const api=(u,o)=>fetch(u,Object.assign({headers:{'Content-Type':'application/json'}},o));
+
+function toast(t,err){const el=$('#toast');el.textContent=t;el.className='toast show'+(err?' err':'');setTimeout(()=>el.className='toast',2600);}
+
+async function login(){
+  const r=await api('/admin/api/login',{method:'POST',body:JSON.stringify({password:$('#pw').value})});
+  if(r.ok){$('#login').style.display='none';$('#app').style.display='';initTabs();load();}
+  else{$('#loginErr').textContent='Неверный пароль';}
+}
+async function logout(){await api('/admin/api/logout',{method:'POST'});location.reload();}
+
+const TABS=[['active','Активные'],['hidden','Скрытые'],['archived','Архив'],['all','Все']];
+function initTabs(){
+  $('#tabs').innerHTML='';
+  TABS.forEach(([k,label])=>{
+    const b=document.createElement('button');b.className='tab'+(k===STATUS?' on':'');b.dataset.k=k;
+    b.textContent=label;b.onclick=()=>{STATUS=k;clearSel();initTabs();load();};
+    $('#tabs').appendChild(b);
+  });
+  $('#purgeBtn').style.display = STATUS==='archived' ? '' : 'none';
+}
+
+let _t;function debouncedLoad(){clearTimeout(_t);_t=setTimeout(load,300);}
+
+async function load(){
+  const q=encodeURIComponent($('#q').value||'');
+  const cat=encodeURIComponent($('#cat').value||'');
+  const r=await api(`/admin/api/state?status=${STATUS}&q=${q}&category=${cat}`);
+  if(r.status===401){location.reload();return;}
+  const d=await r.json();
+  CATS=d.categories||[];
+  fillCats();
+  renderRows(d.products||[]);
+  renderCounts(d.counts||{});
+  $('#audit').textContent=(d.audit||[]).map(a=>`${a.at}  ${a.action}  ${JSON.stringify(Object.fromEntries(Object.entries(a).filter(([k])=>!['at','action'].includes(k))))}`).join('\n')||'—';
+}
+
+function renderCounts(c){
+  document.querySelectorAll('.tab').forEach(t=>{
+    const k=t.dataset.k, base=TABS.find(x=>x[0]===k)[1];
+    const n = k==='all'?c.total:(c[k]||0);
+    t.textContent=`${base} (${n||0})`;
+  });
+}
+function fillCats(){
+  const sel=$('#cat'), cur=sel.value;
+  sel.innerHTML='<option value="">Все категории</option>'+CATS.map(c=>`<option>${esc(c)}</option>`).join('');
+  sel.value=cur;
+  $('#catlist').innerHTML=CATS.map(c=>`<option value="${esc(c)}">`).join('');
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));}
+
+function renderRows(list){
+  const tb=$('#rows');tb.innerHTML='';
+  $('#empty').style.display=list.length?'none':'';
+  list.forEach(p=>{
+    const st=p.status||'active';
+    const img=(p.images&&p.images[0])||'';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><input type="checkbox" data-id="${esc(p.id)}" ${SEL.has(p.id)?'checked':''} onclick="pick(this)"></td>
+      <td class="thumb">${img?`<img src="${esc(img)}" loading="lazy" alt="">`:'<div style="width:48px;height:64px;background:var(--panel2);border-radius:6px"></div>'}</td>
+      <td><div><b>${esc(p.title||'—')}</b></div><div class="idc">арт. ${esc(p.id)}</div>
+          <button class="rowedit" onclick='editRow(${JSON.stringify(p).replace(/'/g,"&#39;")})'>изменить</button></td>
+      <td>${esc(p.category||'—')}</td>
+      <td><span class="price">${fmt(p.price)}</span>${p.oldPrice?`<span class="old">${fmt(p.oldPrice)}</span>`:''}</td>
+      <td>${Number.isInteger(p.stock)?('Осталось '+p.stock):esc(p.stock||'в наличии')}</td>
+      <td><span class="pill ${st}">${({active:'на витрине',hidden:'скрыт',archived:'архив'})[st]}</span></td>`;
+    tb.appendChild(tr);
+  });
+  updateBar();
+}
+function fmt(n){return (n||n===0)?Number(n).toLocaleString('ru-RU')+' ₽':'—';}
+
+function pick(cb){cb.checked?SEL.add(cb.dataset.id):SEL.delete(cb.dataset.id);updateBar();}
+function toggleAll(cb){document.querySelectorAll('#rows input[type=checkbox]').forEach(x=>{x.checked=cb.checked;cb.checked?SEL.add(x.dataset.id):SEL.delete(x.dataset.id);});updateBar();}
+function clearSel(){SEL.clear();document.querySelectorAll('input[type=checkbox]').forEach(x=>x.checked=false);updateBar();}
+function updateBar(){$('#selcnt').textContent=SEL.size;$('#bulkbar').className='bulkbar'+(SEL.size?' show':'');$('#bulkbar').classList.toggle('show',SEL.size>0);}
+
+async function bulk(action,value){
+  if(!SEL.size)return;
+  const ids=[...SEL];
+  const names={archive:'отправить в архив',hide:'скрыть',show:'показать',restore:'восстановить',purge:'УДАЛИТЬ НАВСЕГДА'};
+  if(action==='archive'||action==='purge'){
+    const extra = action==='purge' ? '\n\nЭто НЕЛЬЗЯ отменить.' : '\n\nМожно вернуть из «Архива».';
+    if(!confirm(`${names[action]} ${ids.length} товар(ов)?${extra}`))return;
+  }
+  const r=await api('/admin/api/bulk',{method:'POST',body:JSON.stringify({action,ids,value})});
+  const d=await r.json();
+  if(d.ok){toast(`Готово: ${d.changed} товар(ов)`);clearSel();load();}
+  else toast(d.error||'Ошибка',true);
+}
+function askCategory(){const c=prompt('Новая категория для выбранных:');if(c)bulk('set_category',c);}
+function askPrice(){const v=prompt('Изменить цену на % (например 10 или -15):');if(v!==null&&v!=='')bulk('set_price_pct',parseFloat(v));}
+
+async function rollback(){
+  if(!confirm('Откатить последнее изменение каталога?'))return;
+  const r=await api('/admin/api/rollback',{method:'POST'});const d=await r.json();
+  if(d.ok){toast('Откат выполнен');clearSel();load();}else toast('Нет данных для отката',true);
+}
+
+// ------- добавление/редактирование -------
+function openEdit(){setForm({});$('#editTitle').textContent='Новый товар';$('#editModal').classList.add('show');}
+function editRow(p){setForm(p);$('#editTitle').textContent='Изменить товар';$('#editModal').classList.add('show');}
+function setForm(p){
+  $('#f_id').value=p.id||'';$('#f_title').value=p.title||'';$('#f_category').value=p.category||'';
+  $('#f_stock').value=Number.isInteger(p.stock)?p.stock:'';$('#f_price').value=p.price||'';
+  $('#f_oldPrice').value=p.oldPrice||'';$('#f_badge').value=p.badge||'';
+  $('#f_sizes').value=(p.sizes||[]).join(', ');$('#f_images').value=(p.images||[]).join(', ');
+  $('#f_description').value=p.description||'';
+}
+function closeModal(id){$('#'+id).classList.remove('show');}
+async function saveProduct(){
+  const stockRaw=$('#f_stock').value.trim();
+  const body={
+    id:$('#f_id').value||undefined,
+    title:$('#f_title').value.trim(),
+    category:$('#f_category').value.trim(),
+    price:parseInt($('#f_price').value||'0',10),
+    oldPrice:$('#f_oldPrice').value?parseInt($('#f_oldPrice').value,10):null,
+    badge:$('#f_badge').value.trim()||null,
+    stock:stockRaw===''?'в наличии':parseInt(stockRaw,10),
+    sizes:$('#f_sizes').value.split(',').map(s=>s.trim()).filter(Boolean),
+    images:$('#f_images').value.split(',').map(s=>s.trim()).filter(Boolean),
+    description:$('#f_description').value.trim(),
+  };
+  if(!body.title){toast('Введите название',true);return;}
+  const r=await api('/admin/api/product',{method:'POST',body:JSON.stringify(body)});
+  const d=await r.json();
+  if(d.ok){toast('Сохранено');closeModal('editModal');load();}else toast(d.error||'Ошибка',true);
+}
+
+// автологин, если cookie уже стоит
+(async()=>{const r=await api('/admin/api/state');if(r.ok){$('#login').style.display='none';$('#app').style.display='';initTabs();load();}})();
+</script>
+</body>
+</html>

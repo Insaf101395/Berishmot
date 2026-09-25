@@ -19,6 +19,8 @@ from uuid import uuid4
 
 import pinterest_export as pe
 import vk_export as vke
+import admin
+import catalog_store
 from price_calc import (
     PriceCalculationError,
     calculate_price,
@@ -587,14 +589,40 @@ async def confirm_publish(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+async def _add_to_site(photo_bytes_list: list, name: str, category: str,
+                       sizes: str, price: int, material: str):
+    """Добавляет товар в каталог САЙТА: фото -> ImgBB (стабильные ссылки) -> products.json."""
+    try:
+        urls = []
+        for img in photo_bytes_list[:5]:
+            u = await pe.upload_to_imgbb(img)
+            if u:
+                urls.append(pe.normalize_media_url(u))
+        size_list = [s for s in re.split(r"[,/|]|\s–\s|\s-\s", str(sizes or "")) if s.strip()]
+        catalog_store.upsert({
+            "title": name,
+            "category": category,
+            "price": int(price or 0),
+            "sizes": [s.strip() for s in size_list],
+            "images": urls,
+            "description": "" if material in ("Не указано", "—", "") else material,
+            "stock": "в наличии",
+            "status": "active",
+        })
+        logger.info(f"Site catalog: +1 товар ({name})")
+    except Exception as e:
+        logger.error(f"Site catalog add error: {e}", exc_info=True)
+
+
 async def _add_to_catalogs(photo_ids: list, name: str, category: str,
                            sizes: str = "—", material: str = "Не указано", price: int = 0,
-                           to_pinterest: bool = True, to_vk: bool = True):
-    """Фоновая задача: скачать фото один раз -> Pinterest (1 фото) и/или VK (до 5 фото)."""
-    if not (to_pinterest or to_vk):
+                           to_pinterest: bool = True, to_vk: bool = True,
+                           to_site: bool = True):
+    """Фоновая задача: скачать фото один раз -> Pinterest (1 фото) и/или VK (до 5 фото) и/или сайт."""
+    if not (to_pinterest or to_vk or to_site):
         return
 
-    need = VK_PHOTOS if to_vk else max(1, pe.PINS_PER_PRODUCT)
+    need = VK_PHOTOS if (to_vk or to_site) else max(1, pe.PINS_PER_PRODUCT)
     photo_bytes_list = []
     try:
         for file_id in photo_ids[:need]:
@@ -627,6 +655,10 @@ async def _add_to_catalogs(photo_ids: list, name: str, category: str,
             logger.info(f"VK batch: +{vk_added} offer(ов), итого {vk_total}")
         except Exception as e:
             logger.error(f"VK add_offer error: {e}", exc_info=True)
+
+    # --- Сайт (каталог products.json, до 5 фото) ---
+    if to_site:
+        await _add_to_site(photo_bytes_list[:5], visual_name(name), category, sizes, price, material)
 
 @dp.callback_query(F.data == "cancel")
 async def cancel_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -826,6 +858,7 @@ async def start_web():
     app.router.add_get("/vk_batch.xml", _serve_vk_yml)
     app.router.add_get("/vk_batch.yml", _serve_vk_yml)
     app.router.add_get("/img/{name}", _serve_vk_image)
+    admin.setup(app)  # /products.json + /admin (управление каталогом сайта)
     runner = web.AppRunner(app)
     await runner.setup()
     port = int(os.getenv("PORT", "8080"))
